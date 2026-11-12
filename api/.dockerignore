@@ -1,0 +1,9 @@
+bin/
+obj/
+**/*.user
+.vs/
+.vscode/
+Dockerfile
+.dockerignore
+# Contains local secrets - never bake into the image
+appsettings.Development.json

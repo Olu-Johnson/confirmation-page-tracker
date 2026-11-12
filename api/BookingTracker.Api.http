@@ -1,0 +1,20 @@
+@api = http://localhost:5145
+@adminKey = 0a4e99695b6c4bd7a035e2068c379ff58cf296855b1a8d51
+
+GET {{api}}/health
+
+###
+# What tracker.js sends after "scheduler:booked"
+POST {{api}}/api/track/booking
+Content-Type: text/plain
+Origin: http://localhost:3000
+
+{"uid":"bk_demo001","clickId":"tc_click_123","status":"awaiting_payment","title":"Consultation","startTime":"2026-11-20T14:00:00.000Z","sub1":"facebook"}
+
+###
+GET {{api}}/api/admin/stats
+X-Admin-Key: {{adminKey}}
+
+###
+GET {{api}}/api/admin/bookings?page=1&pageSize=25
+X-Admin-Key: {{adminKey}}

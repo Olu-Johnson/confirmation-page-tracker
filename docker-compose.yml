@@ -1,0 +1,76 @@
+# Deploys the Booking Tracker API and web app from GitHub Container Registry.
+# PostgreSQL is external: set DB_CONNECTION_STRING in .env (see .env.example).
+#
+#   cp .env.example .env      # fill in the values
+#   docker compose pull && docker compose up -d
+
+name: booking-tracker
+
+services:
+  confirmationapi:
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER in .env}/booking-tracker-api:${IMAGE_TAG:-main}
+    container_name: booking-tracker-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-5145}:8080"
+    networks: 
+      - confirmationpage
+      - coolify
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: ${DB_CONNECTION_STRING:?set DB_CONNECTION_STRING in .env}
+      TrackCrest__PostbackUrl: ${TRACKCREST_POSTBACK_URL:-}
+      Zylux__WebhookSecret: ${ZYLUX_WEBHOOK_SECRET:-}
+      Tracking__AllowedOrigins__0: ${TRACKING_ALLOWED_ORIGIN:-https://dept.habyyer.com}
+      Tracking__RequireWebhookConfirmation: ${TRACKING_REQUIRE_WEBHOOK_CONFIRMATION:-true}
+      Admin__ApiKey: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env}
+      EnableSwagger: ${ENABLE_SWAGGER:-false}
+    extra_hosts:
+      # Lets the connection string use host.docker.internal when Postgres runs on the Docker host
+      - "host.docker.internal:host-gateway"
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  confirmationweb:
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER in .env}/booking-tracker-web:${IMAGE_TAG:-main}
+    container_name: booking-tracker-web
+    restart: unless-stopped
+    depends_on:
+      - confirmationapi
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    networks: 
+      - confirmationpage
+      - coolify
+    environment:
+      # Server-to-server: reach the API over the compose network
+      API_BASE_URL: http://confirmationapi:8080
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?set API_PUBLIC_URL in .env}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      BRAND_NAME: ${BRAND_NAME:-Dept Global Solutions}
+      BRAND_SITE_URL: ${BRAND_SITE_URL:-https://dept.habyyer.com}
+      ZYLUX_BASE_URL: ${ZYLUX_BASE_URL:-https://meet.zyluxmedia.app}
+      ADMIN_TIMEZONE: ${ADMIN_TIMEZONE:-Africa/Lagos}
+      ENABLE_DEMO: ${ENABLE_DEMO:-false}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/booking-confirmed"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *logging
+
+networks:
+  confirmationpage:
+    name: confirmationpage-network
+    driver: bridge
+  coolify:
+    external: true
+    name: '${COOLIFY_NETWORK_NAME:-coolify}'

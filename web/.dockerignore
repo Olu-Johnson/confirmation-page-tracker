@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+build
+coverage
+npm-debug.log*
+*.tsbuildinfo
+next-env.d.ts
+.git
+.vscode
+Dockerfile
+.dockerignore
+# Secrets are passed at runtime, never baked into the image
+.env*
