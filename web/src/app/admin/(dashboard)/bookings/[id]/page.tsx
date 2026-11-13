@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { conversionStatusMeta, fmtDateTime, fmtMoney } from "@/lib/format";
-import type { TrackedBooking } from "@/lib/types";
+import type { Conversion, ConversionKind, Site, TrackedBooking } from "@/lib/types";
 import { env } from "@/lib/env";
 import { ApiErrorBox, Badge, BookingBadge, ConversionBadge, ReconciliationBadge } from "@/components/Badge";
 import { sendConversion, updateReconciliation } from "../../../actions";
@@ -17,8 +17,9 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   let b: TrackedBooking;
+  let sites: Site[] = [];
   try {
-    b = await api.booking(id);
+    [b, sites] = await Promise.all([api.booking(id), api.sites().catch(() => [] as Site[])]);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     return <ApiErrorBox message={e instanceof ApiError ? e.message : "Unexpected error"} />;
@@ -26,7 +27,10 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
 
   const message = typeof msg === "string" ? msg : "";
   const zylux = env.zyluxBaseUrl();
-  const cancelledAfterSent = b.conversionStatus === "Sent" && (b.status === "Cancelled" || b.status === "Rejected");
+  const sentKinds = b.conversions.filter((c) => c.status === "Sent").map((c) => c.kind.toLowerCase());
+  const cancelledAfterSent = sentKinds.length > 0 && (b.status === "Cancelled" || b.status === "Rejected");
+  const site = sites.find((s) => s.id === b.siteId);
+  const kinds: ConversionKind[] = ["Lead", "Sale"];
   const subs = [b.sub1, b.sub2, b.sub3, b.sub4, b.sub5].map((s, i) => (s ? `sub${i + 1}=${s}` : null)).filter(Boolean);
 
   return (
@@ -46,11 +50,11 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
       </div>
 
       {message === "saved" && <div className="alert tone-ok">Review saved.</div>}
-      {message === "sent" && <div className="alert tone-ok">Conversion sent to TrackCrest.</div>}
+      {message.startsWith("sent:") && <div className="alert tone-ok">{message.slice(5)} sent to TrackCrest.</div>}
       {message.startsWith("error:") && <div className="alert tone-bad">{message.slice(6)}</div>}
       {cancelledAfterSent && (
         <div className="alert tone-warn">
-          This booking was {b.status.toLowerCase()} after the conversion was sent to TrackCrest. Reverse or reject the conversion in TrackCrest so the affiliate isn&apos;t paid for it.
+          This booking was {b.status.toLowerCase()} after the {sentKinds.join(" and ")} was sent to TrackCrest. Reverse or reject it in TrackCrest so the affiliate isn&apos;t paid for it.
         </div>
       )}
       {!b.webhookConfirmed && (
@@ -93,7 +97,8 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
               <dt>Sub IDs</dt><dd className="mono">{subs.length ? subs.join("  ") : "—"}</dd>
               <dt>Clicked at</dt><dd>{fmtDateTime(b.clickedAt)}</dd>
               <dt>Tracked at</dt><dd>{fmtDateTime(b.createdAt)}</dd>
-              <dt>Site</dt><dd>{b.site ?? "—"}</dd>
+              <dt>Site</dt><dd>{site ? <Link href={`/admin/sites/${site.id}`}>{site.name}</Link> : "—"}{b.site && <span className="cell-sub"> · {b.site}</span>}</dd>
+              <dt>Zylux tracking</dt><dd className="mono">{b.tracking ? Object.entries(b.tracking).map(([k, v]) => `${k}=${v}`).join("  ") : "—"}</dd>
               <dt>Landing URL</dt><dd className="mono">{b.landingUrl ?? "—"}</dd>
               <dt>Referrer</dt><dd className="mono">{b.referrer ?? "—"}</dd>
             </dl>
@@ -121,44 +126,31 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
 
         <div className="stack">
           <section className="card card-pad">
-            <h2>TrackCrest conversion</h2>
-            <dl className="kv" style={{ gridTemplateColumns: "110px minmax(0,1fr)" }}>
-              <dt>Status</dt><dd><ConversionBadge status={b.conversionStatus} /></dd>
-              <dt>Sent at</dt><dd>{fmtDateTime(b.conversionSentAt)}</dd>
-              <dt>Attempts</dt><dd>{b.conversionAttemptCount}</dd>
-              {b.nextConversionAttemptAt && b.conversionStatus === "Queued" && <><dt>Next try</dt><dd>{fmtDateTime(b.nextConversionAttemptAt)}</dd></>}
-              {b.lastConversionError && <><dt>Last error</dt><dd style={{ color: "var(--bad)" }}>{b.lastConversionError}</dd></>}
-            </dl>
-            <p className="hint">{conversionStatusMeta[b.conversionStatus]?.help}</p>
-            {b.conversionStatus !== "Sent" && (
-              <form action={sendConversion} className="actions-row">
-                <input type="hidden" name="id" value={b.id} />
-                <ConfirmButton
-                  className="btn btn-sm"
-                  message={b.conversionStatus === "Waiting" || b.conversionStatus === "NotEligible"
-                    ? "This booking hasn't qualified yet (not paid/confirmed, or cancelled). Send the conversion to TrackCrest anyway?"
-                    : "Send this conversion to TrackCrest now?"}
-                >
-                  {b.conversionStatus === "Failed" || b.conversionStatus === "Queued" ? "Retry now" : "Send manually"}
-                </ConfirmButton>
-              </form>
-            )}
+            <h2>TrackCrest conversions</h2>
+            {site && <p className="hint" style={{ marginTop: 0 }}>{site.name} reports {site.mode === "Both" ? "leads and sales" : site.mode === "Lead" ? "leads" : "sales"}.</p>}
+            {kinds.map((kind) => (
+              <ConversionBlock key={kind} bookingId={b.id} kind={kind} conversion={b.conversions.find((c) => c.kind === kind)} reported={!site || site.mode === "Both" || site.mode === kind} />
+            ))}
             {b.attempts.length > 0 && (
-              <ul className="timeline" style={{ marginTop: 12 }}>
-                {b.attempts.map((a) => (
-                  <li key={a.id}>
-                    <div>
-                      <Badge tone={a.success ? "ok" : "bad"}>{a.httpStatus ?? "error"}</Badge>{" "}
-                      <span className="when">{fmtDateTime(a.attemptedAt)}{a.manual ? " · manual" : ""}</span>
-                    </div>
-                    {a.error && <div className="cell-sub">{a.error}</div>}
-                    <details>
-                      <summary>Request &amp; response</summary>
-                      <pre className="json">{`GET ${a.url}\n\n${a.response ?? ""}`}</pre>
-                    </details>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <h3 style={{ marginTop: 16 }}>Postback attempts</h3>
+                <ul className="timeline">
+                  {b.attempts.map((a) => (
+                    <li key={a.id}>
+                      <div>
+                        <Badge tone={a.success ? "ok" : "bad"}>{a.httpStatus ?? "error"}</Badge>{" "}
+                        <strong>{a.kind ?? "—"}</strong>{" "}
+                        <span className="when">{fmtDateTime(a.attemptedAt)}{a.manual ? " · manual" : ""}</span>
+                      </div>
+                      {a.error && <div className="cell-sub">{a.error}</div>}
+                      <details>
+                        <summary>Request &amp; response</summary>
+                        <pre className="json">{`GET ${a.url}\n\n${a.response ?? ""}`}</pre>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </section>
 
@@ -181,6 +173,37 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
         </div>
       </div>
     </>
+  );
+}
+
+function ConversionBlock({ bookingId, kind, conversion: c, reported }: { bookingId: string; kind: ConversionKind; conversion?: Conversion; reported: boolean }) {
+  if (!c && !reported) return null;
+  const label = kind === "Lead" ? "Lead" : "Sale";
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+      <dl className="kv" style={{ gridTemplateColumns: "110px minmax(0,1fr)" }}>
+        <dt>{label}</dt><dd>{c ? <ConversionBadge status={c.status} /> : <Badge tone="muted">Not created yet</Badge>}</dd>
+        {c?.sentAt && <><dt>Sent at</dt><dd>{fmtDateTime(c.sentAt)}</dd></>}
+        {c && c.attemptCount > 0 && <><dt>Attempts</dt><dd>{c.attemptCount}</dd></>}
+        {c?.nextAttemptAt && c.status === "Queued" && <><dt>Next try</dt><dd>{fmtDateTime(c.nextAttemptAt)}</dd></>}
+        {c?.lastError && <><dt>Last error</dt><dd style={{ color: "var(--bad)" }}>{c.lastError}</dd></>}
+      </dl>
+      {c && <p className="hint">{conversionStatusMeta[c.status]?.help}</p>}
+      {c?.status !== "Sent" && (
+        <form action={sendConversion} className="actions-row">
+          <input type="hidden" name="id" value={bookingId} />
+          <input type="hidden" name="kind" value={kind} />
+          <ConfirmButton
+            className="btn btn-sm"
+            message={!c || c.status === "Waiting" || c.status === "NotEligible"
+              ? `This booking hasn't qualified as a ${label.toLowerCase()} (not booked/paid yet, cancelled, or not reported for this site). Send it to TrackCrest anyway?`
+              : `Send the ${label.toLowerCase()} to TrackCrest now?`}
+          >
+            {c?.status === "Failed" || c?.status === "Queued" ? `Retry ${label.toLowerCase()} now` : `Send ${label.toLowerCase()} manually`}
+          </ConfirmButton>
+        </form>
+      )}
+    </div>
   );
 }
 

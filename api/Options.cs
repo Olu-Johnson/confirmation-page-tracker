@@ -3,8 +3,8 @@ namespace BookingTracker.Api;
 public class TrackCrestOptions
 {
     /// <summary>
-    /// Postback URL from the TrackCrest dashboard. Placeholders: {click_id} {txid} {booking_uid}
-    /// {amount} {currency} {status} {affiliate_id} {sub1}..{sub5}. Values are URL-encoded.
+    /// Legacy single-site setting: only used to create the "default" site the first time the API starts
+    /// with no sites (as its sale postback). Postback URLs are now set per site in the admin.
     /// </summary>
     public string PostbackUrl { get; set; } = "";
     public int MaxAttempts { get; set; } = 6;
@@ -13,13 +13,13 @@ public class TrackCrestOptions
 
 public class ZyluxOptions
 {
-    /// <summary>Same secret as in Zylux Meet → Settings → Developer → Webhooks.</summary>
+    /// <summary>Legacy single-site setting: seeds the "default" site's webhook secret. Now set per site in the admin.</summary>
     public string WebhookSecret { get; set; } = "";
 }
 
 public class TrackingOptions
 {
-    /// <summary>Sites allowed to call the tracker endpoint, e.g. https://dept.habyyer.com</summary>
+    /// <summary>Legacy single-site setting: seeds the "default" site's allowed origins. Now set per site in the admin.</summary>
     public string[] AllowedOrigins { get; set; } = [];
 
     /// <summary>

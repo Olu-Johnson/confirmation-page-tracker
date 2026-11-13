@@ -2,7 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 
-export default function ConfirmButton({ message, className, children }: { message: string; className?: string; children: React.ReactNode }) {
+export default function ConfirmButton({ message, className, children, pendingLabel = "Sending…" }: { message: string; className?: string; children: React.ReactNode; pendingLabel?: string }) {
   const { pending } = useFormStatus();
   return (
     <button
@@ -11,7 +11,7 @@ export default function ConfirmButton({ message, className, children }: { messag
       disabled={pending}
       onClick={(e) => { if (!window.confirm(message)) e.preventDefault(); }}
     >
-      {pending ? "Sending…" : children}
+      {pending ? pendingLabel : children}
     </button>
   );
 }

@@ -3,8 +3,12 @@
  *
  * Add to every page of the client's site (e.g. app/layout of dept.habyyer.com):
  *   <script src="https://YOUR-APP/tracker.js" data-booking-tracker
+ *           data-site="dept-habyyer"
  *           data-api="https://YOUR-API"
  *           data-confirm-url="https://YOUR-APP/booking-confirmed" async></script>
+ *
+ * data-site is the site's key in the admin (Sites), where lead / sale / both and the TrackCrest
+ * postback URLs are set. Nothing about what gets reported is decided here.
  *
  * 1. Saves the TrackCrest click ID (and sub1–sub5) from the landing URL on the client's domain.
  * 2. Listens for Zylux's "scheduler:booked" event (inline embed AND popup modal).
@@ -12,6 +16,9 @@
  *    (Zylux appends uid, startTime, title), so paid bookings in another tab are still recorded.
  * 3. Sends {uid, clickId} to the API, then redirects to the confirmation page.
  * Visitors without a click ID are still redirected but are not recorded.
+ *
+ * Zylux Meet's embed.js also passes the click ID into the booking itself, so the booking is tracked
+ * from Zylux's signed webhooks even if this browser call never happens (closed tab after paying).
  */
 (function () {
   "use strict";
@@ -23,6 +30,7 @@
 
   var cfg = {
     api: (ds.api || "").replace(/\/+$/, ""),
+    site: ds.site || "",
     confirmUrl: ds.confirmUrl || "",
     clickParams: list(ds.clickParams, "click_id,clickid,cid,tc_cid"),
     affiliateParams: list(ds.affiliateParams, "aff_id,affiliate_id,aff"),
@@ -106,7 +114,8 @@
       uid: b.uid, clickId: attr.clickId, affiliateId: attr.affiliateId, status: b.status,
       title: b.title, startTime: b.startTime, endTime: b.endTime,
       sub1: attr.sub1, sub2: attr.sub2, sub3: attr.sub3, sub4: attr.sub4, sub5: attr.sub5,
-      site: location.origin, landingUrl: attr.landingUrl, referrer: attr.referrer, clickedAt: attr.ts
+      site: location.origin, siteKey: cfg.site || undefined,
+      landingUrl: attr.landingUrl, referrer: attr.referrer, clickedAt: attr.ts
     };
     // text/plain avoids a CORS preflight; keepalive lets it finish while the page navigates.
     fetch(cfg.api + "/api/track/booking", {

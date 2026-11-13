@@ -1,0 +1,79 @@
+"use client";
+
+import { useActionState } from "react";
+import type { Site, TrackMode } from "@/lib/types";
+import { saveSite } from "../../actions";
+
+const MODES: { value: TrackMode; label: string; help: string }[] = [
+  { value: "Lead", label: "Leads", help: "Every booked meeting, free or paid, is reported as a lead." },
+  { value: "Sale", label: "Sales", help: "Only paid meetings are reported, once the payment goes through." },
+  { value: "Both", label: "Leads and sales", help: "A lead when a meeting is booked, plus a sale when a paid meeting is paid." },
+];
+
+const PLACEHOLDERS = "{click_id} {conversion_id} {event} {txid} {amount} {currency} {status} {affiliate_id} {sub1}…{sub5}";
+
+export default function SiteForm({ site }: { site?: Site }) {
+  const [state, action, pending] = useActionState(saveSite, undefined);
+  return (
+    <form action={action} className="site-form">
+      {state?.error && <div className="alert tone-bad" role="alert">{state.error}</div>}
+      {site && <input type="hidden" name="id" value={site.id} />}
+
+      <div className="field">
+        <label className="label" htmlFor="name">Name</label>
+        <input className="input" id="name" name="name" required maxLength={200} defaultValue={site?.name} placeholder="Dept Global Solutions" />
+      </div>
+      <div className="field">
+        <label className="label" htmlFor="key">Key</label>
+        <input className="input mono" id="key" name="key" required pattern="[a-z0-9][a-z0-9\-]{1,49}" defaultValue={site?.key} placeholder="dept-habyyer" />
+        <p className="hint">Lowercase letters, digits and dashes. Used in the tracker script (<code>data-site</code>) and the webhook URL, so changing it means updating both.</p>
+      </div>
+
+      <div className="field">
+        <span className="label">Report to TrackCrest</span>
+        <div className="modes">
+          {MODES.map((m) => (
+            <label key={m.value} className="mode">
+              <input type="radio" name="mode" value={m.value} defaultChecked={(site?.mode ?? "Both") === m.value} />
+              <span><strong>{m.label}</strong><small>{m.help}</small></span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="field">
+        <label className="label" htmlFor="leadPostbackUrl">Lead postback URL</label>
+        <input className="input mono" id="leadPostbackUrl" name="leadPostbackUrl" defaultValue={site?.leadPostbackUrl ?? ""} placeholder="https://trackcrest.com/postback?click_id={click_id}&event=lead&txid={conversion_id}" />
+      </div>
+      <div className="field">
+        <label className="label" htmlFor="salePostbackUrl">Sale postback URL</label>
+        <input className="input mono" id="salePostbackUrl" name="salePostbackUrl" defaultValue={site?.salePostbackUrl ?? ""} placeholder="https://trackcrest.com/postback?click_id={click_id}&event=sale&amount={amount}&txid={conversion_id}" />
+        <p className="hint">
+          From the TrackCrest offer. Only the URLs for what this site reports are used; they can be the same URL with <code>{"{event}"}</code> (lead / sale) in it.
+          Placeholders: <code>{PLACEHOLDERS}</code>. With leads and sales, use <code>{"{conversion_id}"}</code> as the transaction ID so TrackCrest doesn&apos;t treat the sale as a duplicate of the lead.
+        </p>
+      </div>
+
+      <div className="field">
+        <label className="label" htmlFor="allowedOrigins">Website addresses</label>
+        <textarea className="textarea mono" id="allowedOrigins" name="allowedOrigins" rows={2} defaultValue={site?.allowedOrigins.join("\n")} placeholder="https://dept.habyyer.com" />
+        <p className="hint">One per line. The tracker script only reports bookings from these.</p>
+      </div>
+
+      {!site && (
+        <div className="field">
+          <label className="label" htmlFor="webhookSecret">Zylux webhook secret (optional)</label>
+          <input className="input mono" id="webhookSecret" name="webhookSecret" minLength={16} maxLength={200} placeholder="Leave empty to generate one" />
+        </div>
+      )}
+
+      <div className="field">
+        <label className="check-row">
+          <input type="checkbox" name="active" defaultChecked={site?.active ?? true} /> Active (turning it off stops tracker calls and webhooks for this site)
+        </label>
+      </div>
+
+      <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? "Saving…" : site ? "Save changes" : "Create site"}</button>
+    </form>
+  );
+}

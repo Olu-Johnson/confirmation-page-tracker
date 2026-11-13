@@ -6,6 +6,7 @@ using BookingTracker.Api.Endpoints;
 using BookingTracker.Api.Services;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,13 +28,16 @@ builder.Services.AddHttpClient("trackcrest", c =>
 
 builder.Services.AddSingleton<ConversionQueue>();
 builder.Services.AddScoped<BookingEventService>();
+builder.Services.AddScoped<SiteService>();
 builder.Services.AddScoped<ConversionSender>();
 builder.Services.AddHostedService<ConversionWorker>();
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-var origins = cfg.GetSection("Tracking:AllowedOrigins").Get<string[]>() ?? [];
-builder.Services.AddCors(o => o.AddPolicy("tracker", p => p.WithOrigins(origins).WithMethods("POST").AllowAnyHeader()));
+// The tracker may be called from any active site's allowed origins (Admin → Sites).
+var siteOrigins = new SiteOriginCache();
+builder.Services.AddSingleton(siteOrigins);
+builder.Services.AddCors(o => o.AddPolicy("tracker", p => p.SetIsOriginAllowed(siteOrigins.IsAllowed).WithMethods("POST").AllowAnyHeader()));
 
 builder.Services.AddRateLimiter(o =>
 {
@@ -84,12 +88,17 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     // Creates the database if it doesn't exist and applies pending migrations.
-    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+    var sp = scope.ServiceProvider;
+    var db = sp.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+    await SiteService.SeedDefaultAsync(db, sp.GetRequiredService<IOptions<TrackCrestOptions>>(), sp.GetRequiredService<IOptions<ZyluxOptions>>(),
+        sp.GetRequiredService<IOptions<TrackingOptions>>(), app.Logger, CancellationToken.None);
+    await siteOrigins.RefreshAsync(db, CancellationToken.None);
+    if (!await db.Sites.AnyAsync(s => s.Active))
+        app.Logger.LogWarning("No active sites yet: add one in the admin (Sites) before tracker calls and webhooks are accepted.");
 }
 
 if (string.IsNullOrEmpty(cfg["Admin:ApiKey"])) app.Logger.LogWarning("Admin:ApiKey is empty: the admin API will reject every request.");
-if (string.IsNullOrEmpty(cfg["Zylux:WebhookSecret"])) app.Logger.LogWarning("Zylux:WebhookSecret is empty: Zylux webhooks will be rejected.");
-if (string.IsNullOrEmpty(cfg["TrackCrest:PostbackUrl"])) app.Logger.LogWarning("TrackCrest:PostbackUrl is empty: conversions will stay queued.");
 
 app.UseForwardedHeaders();
 app.UseCors();

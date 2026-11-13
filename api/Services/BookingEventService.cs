@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using BookingTracker.Api.Data;
 using BookingTracker.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -14,20 +15,21 @@ public record TrackerInput(
     string? Site, string? LandingUrl, string? Referrer, DateTimeOffset? ClickedAt);
 
 /// <summary>Creates tracked bookings and applies Zylux webhook events to them.</summary>
-public class BookingEventService(
+public partial class BookingEventService(
     AppDbContext db, ConversionQueue queue, IOptions<TrackingOptions> tracking, ILogger<BookingEventService> log)
 {
     static readonly string[] RescheduleKeys = ["rescheduledFromUid", "fromReschedule", "originalBookingUid", "rescheduleUid", "rescheduledFrom"];
 
-    public async Task<TrackedBooking> RecordTrackerAsync(TrackerInput input, CancellationToken ct)
+    public async Task<TrackedBooking> RecordTrackerAsync(Site site, TrackerInput input, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
-        var booking = await db.Bookings.FirstOrDefaultAsync(b => b.BookingUid == input.Uid, ct);
+        var booking = await db.Bookings.Include(b => b.Conversions).FirstOrDefaultAsync(b => b.BookingUid == input.Uid, ct);
         if (booking is null)
         {
             booking = new TrackedBooking { Id = Guid.NewGuid(), BookingUid = input.Uid, ClickId = input.ClickId, CreatedAt = now };
             db.Bookings.Add(booking);
         }
+        booking.SiteId ??= site.Id;
 
         // Browser data is unverified: it only fills gaps and never overrides webhook data.
         booking.AffiliateId ??= input.AffiliateId;
@@ -55,7 +57,7 @@ public class BookingEventService(
         {
             // Two tracker calls raced for the same uid; the other one won.
             db.Entry(booking).State = EntityState.Detached;
-            return await db.Bookings.FirstAsync(b => b.BookingUid == input.Uid, ct);
+            return await db.Bookings.AsNoTracking().FirstAsync(b => b.BookingUid == input.Uid, ct);
         }
 
         // A webhook may have arrived before the browser call: apply any buffered ones now.
@@ -65,17 +67,24 @@ public class BookingEventService(
         foreach (var evt in buffered)
         {
             using var doc = JsonDocument.Parse(evt.Payload);
-            Apply(booking, evt.Trigger, PayloadOf(doc.RootElement), evt.ReceivedAt);
+            var p = PayloadOf(doc.RootElement);
+            Apply(booking, evt.Trigger, p, evt.ReceivedAt);
+            ApplyTracking(booking, p);
+            booking.SiteId = evt.SiteId ?? booking.SiteId; // the signed webhook knows the site for sure
             evt.TrackedBookingId = booking.Id;
         }
 
-        Evaluate(booking);
+        await EvaluateAsync(booking, ct);
         await db.SaveChangesAsync(ct);
-        if (booking.ConversionStatus == ConversionStatus.Queued) queue.Signal();
+        if (booking.Conversions.Any(c => c.Status == ConversionStatus.Queued)) queue.Signal();
         return booking;
     }
 
-    public async Task<bool> HandleWebhookAsync(string trigger, string rawBody, CancellationToken ct)
+    /// <summary>
+    /// Applies a signed Zylux webhook from <paramref name="site"/>. A booking Zylux recorded a click ID
+    /// for (payload.tracking) is tracked from the webhook alone, with no browser call needed.
+    /// </summary>
+    public async Task<bool> HandleWebhookAsync(Site site, string trigger, string rawBody, CancellationToken ct)
     {
         using var doc = JsonDocument.Parse(rawBody);
         var payload = PayloadOf(doc.RootElement);
@@ -83,7 +92,7 @@ public class BookingEventService(
         var now = DateTimeOffset.UtcNow;
 
         TrackedBooking? booking = null;
-        if (uid is not null) booking = await db.Bookings.FirstOrDefaultAsync(b => b.BookingUid == uid, ct);
+        if (uid is not null) booking = await db.Bookings.Include(b => b.Conversions).FirstOrDefaultAsync(b => b.BookingUid == uid, ct);
 
         // Reschedules may come with a new uid that points at the original booking.
         if (booking is null && trigger == "BOOKING_RESCHEDULED")
@@ -92,7 +101,7 @@ public class BookingEventService(
             {
                 var oldUid = Str(payload, key);
                 if (oldUid is null) continue;
-                booking = await db.Bookings.FirstOrDefaultAsync(b => b.BookingUid == oldUid, ct);
+                booking = await db.Bookings.Include(b => b.Conversions).FirstOrDefaultAsync(b => b.BookingUid == oldUid, ct);
                 if (booking is null) continue;
                 if (uid is not null && uid != oldUid)
                 {
@@ -103,23 +112,80 @@ public class BookingEventService(
             }
         }
 
+        // Not seen yet, but Zylux recorded the TrackCrest click ID on the booking: track it from here.
+        var created = false;
+        if (booking is null && uid is not null && UidRx().IsMatch(uid) && FirstTracking(payload, ClickKeys) is { } clickId && ClickRx().IsMatch(clickId))
+        {
+            booking = new TrackedBooking { Id = Guid.NewGuid(), BookingUid = uid, ClickId = clickId, SiteId = site.Id, CreatedAt = now, UpdatedAt = now };
+            db.Bookings.Add(booking);
+            created = true;
+        }
+
         var evt = new WebhookEvent
         {
             Id = Guid.NewGuid(), Trigger = trigger, BookingUid = uid, Payload = rawBody, ReceivedAt = now,
-            TrackedBookingId = booking?.Id,
+            TrackedBookingId = booking?.Id, SiteId = site.Id,
         };
         db.WebhookEvents.Add(evt);
 
         if (booking is not null)
         {
+            if (booking.SiteId is { } other && other != site.Id)
+                log.LogWarning("Webhook for {Uid} came from site {Site} but the booking belongs to another site", uid, site.Key);
+            booking.SiteId ??= site.Id;
             Apply(booking, trigger, payload, now);
-            Evaluate(booking);
+            ApplyTracking(booking, payload);
+            await EvaluateAsync(booking, ct);
         }
 
-        await db.SaveChangesAsync(ct);
-        if (booking?.ConversionStatus == ConversionStatus.Queued) queue.Signal();
-        log.LogInformation("Webhook {Trigger} uid={Uid} matched={Matched}", trigger, uid, booking is not null);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (created)
+        {
+            // The tracker call created the same booking a moment earlier: apply the webhook to that one.
+            db.ChangeTracker.Clear();
+            return await HandleWebhookAsync(site, trigger, rawBody, ct);
+        }
+        if (booking?.Conversions.Any(c => c.Status == ConversionStatus.Queued) == true) queue.Signal();
+        log.LogInformation("Webhook {Trigger} site={Site} uid={Uid} matched={Matched} created={Created}", trigger, site.Key, uid, booking is not null, created);
         return booking is not null;
+    }
+
+    static readonly string[] ClickKeys = ["click_id", "clickid", "cid", "tc_cid"];
+    static readonly string[] AffiliateKeys = ["aff_id", "affiliate_id", "aff"];
+
+    [GeneratedRegex(@"^[A-Za-z0-9_\-]{3,100}$")] private static partial Regex UidRx();
+    [GeneratedRegex(@"^[A-Za-z0-9_.\-]{4,128}$")] private static partial Regex ClickRx();
+
+    /// <summary>Fills attribution gaps from the webhook's tracking object (Zylux Meet's record of the landing parameters).</summary>
+    static void ApplyTracking(TrackedBooking b, JsonElement p)
+    {
+        if (!p.TryGetProperty("tracking", out var t) || t.ValueKind != JsonValueKind.Object) return;
+        var all = new Dictionary<string, string>();
+        foreach (var prop in t.EnumerateObject())
+        {
+            if (all.Count >= 20) break;
+            var v = Str(t, prop.Name);
+            if (v is not null && prop.Name.Length <= 40) all[prop.Name] = v.Length > 200 ? v[..200] : v;
+        }
+        if (all.Count == 0) return;
+        b.Tracking = all;
+        string? Cap(string? v) => v is null ? null : v.Length > 100 ? v[..100] : v;
+        b.AffiliateId ??= Cap(FirstTracking(p, AffiliateKeys));
+        b.Sub1 ??= Cap(Str(t, "sub1"));
+        b.Sub2 ??= Cap(Str(t, "sub2"));
+        b.Sub3 ??= Cap(Str(t, "sub3"));
+        b.Sub4 ??= Cap(Str(t, "sub4"));
+        b.Sub5 ??= Cap(Str(t, "sub5"));
+    }
+
+    static string? FirstTracking(JsonElement p, string[] keys)
+    {
+        if (!p.TryGetProperty("tracking", out var t) || t.ValueKind != JsonValueKind.Object) return null;
+        foreach (var k in keys) if (Str(t, k) is { } v) return v;
+        return null;
     }
 
     void Apply(TrackedBooking b, string trigger, JsonElement p, DateTimeOffset at)
@@ -184,24 +250,58 @@ public class BookingEventService(
             b.Status = n;
     }
 
-    /// <summary>Decides whether the booking should now be reported to TrackCrest.</summary>
-    void Evaluate(TrackedBooking b)
+    /// <summary>
+    /// Creates the conversions the booking's site reports (lead, sale or both) and queues the ones that
+    /// now qualify. A lead qualifies once the meeting is booked (accepted, awaiting payment or paid);
+    /// a sale once it is paid. Sent, queued and failed conversions are never touched again.
+    /// </summary>
+    async Task EvaluateAsync(TrackedBooking b, CancellationToken ct)
     {
-        if (b.ConversionStatus is ConversionStatus.Sent or ConversionStatus.Queued or ConversionStatus.Failed) return;
-        if (b.Status is BookingStatus.Cancelled or BookingStatus.Rejected)
+        var now = DateTimeOffset.UtcNow;
+        var site = b.SiteId is { } siteId ? await db.Sites.FindAsync([siteId], ct) : null;
+        if (site is not null)
         {
-            b.ConversionStatus = ConversionStatus.NotEligible;
-            return;
+            foreach (var kind in Enum.GetValues<ConversionKind>())
+            {
+                if (!site.Reports(kind) || b.Conversions.Any(c => c.Kind == kind)) continue;
+                var c = new Conversion { Id = Guid.NewGuid(), TrackedBookingId = b.Id, Kind = kind, CreatedAt = now, UpdatedAt = now };
+                // Added explicitly: with its key already set, EF would otherwise take it for an existing row.
+                db.Conversions.Add(c);
+                b.Conversions.Add(c);
+            }
         }
-        var eligible = b.Status == BookingStatus.Paid || (b.Status == BookingStatus.Accepted && !b.PaymentRequired);
-        if (tracking.Value.RequireWebhookConfirmation && !b.WebhookConfirmed) eligible = false;
 
-        if (eligible)
+        var cancelled = b.Status is BookingStatus.Cancelled or BookingStatus.Rejected;
+        var confirmed = b.WebhookConfirmed || !tracking.Value.RequireWebhookConfirmation;
+        foreach (var c in b.Conversions)
         {
-            b.ConversionStatus = ConversionStatus.Queued;
-            b.NextConversionAttemptAt = DateTimeOffset.UtcNow;
+            if (c.Status is ConversionStatus.Sent or ConversionStatus.Queued or ConversionStatus.Failed) continue;
+            var next =
+                cancelled ? ConversionStatus.NotEligible
+                // A free meeting that's booked will never be paid for.
+                : c.Kind == ConversionKind.Sale && b.Status == BookingStatus.Accepted && !b.PaymentRequired && b.WebhookConfirmed ? ConversionStatus.NotEligible
+                : Qualifies(b, c.Kind) && confirmed ? ConversionStatus.Queued
+                : ConversionStatus.Waiting;
+            if (next == c.Status) continue;
+            c.Status = next;
+            c.NextAttemptAt = next == ConversionStatus.Queued ? now : null;
+            c.UpdatedAt = now;
         }
-        else b.ConversionStatus = ConversionStatus.Waiting;
+        Summarize(b);
+    }
+
+    static bool Qualifies(TrackedBooking b, ConversionKind kind) => kind == ConversionKind.Sale
+        ? b.Status == BookingStatus.Paid
+        : b.Status is BookingStatus.Accepted or BookingStatus.AwaitingPayment or BookingStatus.Paid;
+
+    /// <summary>Rolls the booking's conversions up into <see cref="TrackedBooking.ConversionStatus"/> for lists and filters.</summary>
+    public static void Summarize(TrackedBooking b)
+    {
+        ConversionStatus[] priority = [ConversionStatus.Failed, ConversionStatus.Queued, ConversionStatus.Waiting, ConversionStatus.Sent, ConversionStatus.NotEligible];
+        b.ConversionStatus = b.Conversions.Count == 0
+            ? b.Status is BookingStatus.Cancelled or BookingStatus.Rejected ? ConversionStatus.NotEligible : ConversionStatus.Waiting
+            : priority.First(p => b.Conversions.Any(c => c.Status == p));
+        b.ConversionSentAt = b.Conversions.Max(c => c.SentAt);
     }
 
     public static BookingStatus? ParseStatus(string? s) => s?.Trim().ToLowerInvariant() switch

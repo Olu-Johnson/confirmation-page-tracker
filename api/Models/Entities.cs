@@ -3,7 +3,7 @@ namespace BookingTracker.Api.Models;
 /// <summary>Booking lifecycle as reported by Zylux Meet (webhooks are authoritative, the browser tracker only fills gaps).</summary>
 public enum BookingStatus { Pending, AwaitingPayment, Accepted, Paid, Cancelled, Rejected }
 
-/// <summary>State of the TrackCrest server-to-server postback for a booking.</summary>
+/// <summary>State of one TrackCrest server-to-server postback (and, on a booking, the summary of its postbacks).</summary>
 public enum ConversionStatus
 {
     Waiting,      // tracked, but not eligible yet (e.g. awaiting payment or webhook confirmation)
@@ -11,6 +11,63 @@ public enum ConversionStatus
     Sent,         // TrackCrest answered 2xx
     Failed,       // gave up after MaxAttempts; can be retried from the admin
     NotEligible   // cancelled/rejected before it qualified
+}
+
+/// <summary>What a booking is reported to TrackCrest as.</summary>
+public enum ConversionKind
+{
+    Lead, // a meeting was booked (free, or paid and waiting for / done with payment)
+    Sale  // a paid meeting was paid for
+}
+
+/// <summary>Which conversions a site reports.</summary>
+public enum TrackMode
+{
+    Lead, // every booked meeting, free or paid
+    Sale, // paid meetings only, once paid
+    Both  // a lead when booked, plus a sale when a paid meeting is paid
+}
+
+/// <summary>
+/// A client website using Zylux Meet that is promoted through TrackCrest. Holds what to report
+/// (lead / sale / both), where to send it, and how to recognise its webhooks and tracker calls.
+/// </summary>
+public class Site
+{
+    public Guid Id { get; set; }
+    /// <summary>Short id used in the tracker script (data-site) and the webhook URL, e.g. "dept-habyyer".</summary>
+    public string Key { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool Active { get; set; } = true;
+    public TrackMode Mode { get; set; } = TrackMode.Both;
+    /// <summary>TrackCrest postback for leads. Placeholders as in <see cref="Services.ConversionSender.BuildUrl"/>.</summary>
+    public string? LeadPostbackUrl { get; set; }
+    /// <summary>TrackCrest postback for sales.</summary>
+    public string? SalePostbackUrl { get; set; }
+    /// <summary>Same secret as the site's Zylux Meet webhook.</summary>
+    public string WebhookSecret { get; set; } = "";
+    /// <summary>Origins allowed to call the tracker endpoint for this site, e.g. https://dept.habyyer.com</summary>
+    public List<string> AllowedOrigins { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public bool Reports(ConversionKind kind) => Mode == TrackMode.Both || (Mode == TrackMode.Lead ? kind == ConversionKind.Lead : kind == ConversionKind.Sale);
+    public string? PostbackUrlFor(ConversionKind kind) => kind == ConversionKind.Lead ? LeadPostbackUrl : SalePostbackUrl;
+}
+
+/// <summary>One postback to TrackCrest for a booking: its lead, or its sale.</summary>
+public class Conversion
+{
+    public Guid Id { get; set; }
+    public Guid TrackedBookingId { get; set; }
+    public ConversionKind Kind { get; set; }
+    public ConversionStatus Status { get; set; } = ConversionStatus.Waiting;
+    public int AttemptCount { get; set; }
+    public DateTimeOffset? NextAttemptAt { get; set; }
+    public DateTimeOffset? SentAt { get; set; }
+    public string? LastError { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
 }
 
 /// <summary>Manual review state used when reconciling with the business owner.</summary>
@@ -22,6 +79,8 @@ public class TrackedBooking
     public Guid Id { get; set; }
     public string BookingUid { get; set; } = "";
     public string? OriginalBookingUid { get; set; }
+    /// <summary>The client site (from the signed webhook, else the tracker call).</summary>
+    public Guid? SiteId { get; set; }
 
     // Attribution (captured by tracker.js on the client's site)
     public string ClickId { get; set; } = "";
@@ -31,7 +90,10 @@ public class TrackedBooking
     public string? Sub3 { get; set; }
     public string? Sub4 { get; set; }
     public string? Sub5 { get; set; }
+    /// <summary>Origin of the page the tracker ran on.</summary>
     public string? Site { get; set; }
+    /// <summary>Every campaign/affiliate parameter Zylux Meet recorded on the booking (click_id, utm_*, sub1…).</summary>
+    public Dictionary<string, string>? Tracking { get; set; }
     public string? LandingUrl { get; set; }
     public string? Referrer { get; set; }
     public DateTimeOffset? ClickedAt { get; set; }
@@ -59,12 +121,11 @@ public class TrackedBooking
     public string? PaymentProvider { get; set; }
     public DateTimeOffset? PaidAt { get; set; }
 
-    // TrackCrest conversion
+    // TrackCrest conversions: summary of Conversions, for filtering and lists
+    /// <summary>Failed, then Queued, then Waiting, then Sent, then NotEligible: the state that needs attention first.</summary>
     public ConversionStatus ConversionStatus { get; set; } = ConversionStatus.Waiting;
-    public int ConversionAttemptCount { get; set; }
-    public DateTimeOffset? NextConversionAttemptAt { get; set; }
+    /// <summary>When the latest postback was accepted.</summary>
     public DateTimeOffset? ConversionSentAt { get; set; }
-    public string? LastConversionError { get; set; }
 
     // Reconciliation
     public ReconciliationStatus ReconciliationStatus { get; set; } = ReconciliationStatus.Unreviewed;
@@ -75,6 +136,7 @@ public class TrackedBooking
     public DateTimeOffset UpdatedAt { get; set; }
 
     public List<WebhookEvent> Events { get; set; } = [];
+    public List<Conversion> Conversions { get; set; } = [];
     public List<ConversionAttempt> Attempts { get; set; } = [];
 }
 
@@ -83,6 +145,7 @@ public class WebhookEvent
 {
     public Guid Id { get; set; }
     public Guid? TrackedBookingId { get; set; }
+    public Guid? SiteId { get; set; }
     public string? BookingUid { get; set; }
     public string Trigger { get; set; } = "";
     public string Payload { get; set; } = "{}";
@@ -94,6 +157,8 @@ public class ConversionAttempt
 {
     public Guid Id { get; set; }
     public Guid TrackedBookingId { get; set; }
+    public Guid? ConversionId { get; set; }
+    public ConversionKind? Kind { get; set; }
     public DateTimeOffset AttemptedAt { get; set; }
     public string Url { get; set; } = "";
     public int? HttpStatus { get; set; }

@@ -1,6 +1,6 @@
 // Server-only client for the .NET admin API. The admin key never reaches the browser.
 import { env } from "./env";
-import type { ApiConfig, BookingPage, Stats, TrackedBooking } from "./types";
+import type { ApiConfig, BookingPage, ConversionKind, ConversionStatus, Site, SiteInput, Stats, TrackedBooking } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -42,8 +42,13 @@ export const api = {
   config: () => call<ApiConfig>(`/api/admin/config`),
   updateReconciliation: (id: string, body: { status?: string; notes?: string }) =>
     call<TrackedBooking>(`/api/admin/bookings/${encodeURIComponent(id)}/reconciliation`, { method: "PATCH", body: JSON.stringify(body) }),
-  sendConversion: (id: string) =>
-    call<{ conversionStatus: string; lastConversionError: string | null }>(`/api/admin/bookings/${encodeURIComponent(id)}/send-conversion`, { method: "POST" }),
+  sendConversion: (id: string, kind: ConversionKind) =>
+    call<{ status: ConversionStatus; error: string | null }>(
+      `/api/admin/bookings/${encodeURIComponent(id)}/conversions/${kind.toLowerCase()}/send`, { method: "POST" }),
+  sites: () => call<Site[]>(`/api/admin/sites`),
+  site: (id: string) => call<Site>(`/api/admin/sites/${encodeURIComponent(id)}`),
+  createSite: (body: SiteInput) => call<Site>(`/api/admin/sites`, { method: "POST", body: JSON.stringify(body) }),
+  updateSite: (id: string, body: SiteInput) => call<Site>(`/api/admin/sites/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
   exportCsv: async (params: Record<string, string | undefined>) => {
     const res = await fetch(`${env.apiBaseUrl()}/api/admin/bookings/export${toQuery(params)}`, {
       cache: "no-store",
