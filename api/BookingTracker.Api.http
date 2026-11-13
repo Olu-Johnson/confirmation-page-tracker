@@ -9,7 +9,7 @@ POST {{api}}/api/track/booking
 Content-Type: text/plain
 Origin: http://localhost:3000
 
-{"uid":"bk_demo001","clickId":"tc_click_123","status":"awaiting_payment","title":"Consultation","startTime":"2026-11-20T14:00:00.000Z","sub1":"facebook"}
+{"uid":"bk_demo001","clickId":"tc_click_123","siteKey":"default","status":"awaiting_payment","title":"Consultation","startTime":"2026-11-20T14:00:00.000Z","sub1":"facebook"}
 
 ###
 GET {{api}}/api/admin/stats
@@ -18,3 +18,15 @@ X-Admin-Key: {{adminKey}}
 ###
 GET {{api}}/api/admin/bookings?page=1&pageSize=25
 X-Admin-Key: {{adminKey}}
+
+###
+GET {{api}}/api/admin/sites
+X-Admin-Key: {{adminKey}}
+
+###
+# Create a site (a webhook secret is generated)
+POST {{api}}/api/admin/sites
+X-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{"key":"dept-habyyer","name":"Dept Global Solutions","mode":"Both","leadPostbackUrl":"https://trackcrest.example/postback?click_id={click_id}&event=lead&txid={conversion_id}","salePostbackUrl":"https://trackcrest.example/postback?click_id={click_id}&event=sale&amount={amount}&txid={conversion_id}","allowedOrigins":["https://dept.habyyer.com"]}

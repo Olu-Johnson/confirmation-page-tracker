@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { api, ApiError, toQuery } from "@/lib/api";
 import { adminTimeZone, bookingStatusMeta, conversionStatusMeta, fmtDateTime, fmtMoney, reconciliationMeta } from "@/lib/format";
-import { FILTER_KEYS, type BookingPage, type Stats } from "@/lib/types";
+import { FILTER_KEYS, type BookingPage, type Site, type Stats } from "@/lib/types";
 import { ApiErrorBox, Badge, BookingBadge, ConversionBadge, ReconciliationBadge } from "@/components/Badge";
 
 export const metadata: Metadata = { title: "Bookings" };
@@ -19,11 +19,13 @@ export default async function BookingsPage({ searchParams }: PageProps<"/admin">
 
   let data: BookingPage | null = null;
   let stats: Stats | null = null;
+  let sites: Site[] = [];
   let error = "";
   try {
-    [data, stats] = await Promise.all([
+    [data, stats, sites] = await Promise.all([
       api.bookings({ ...filters, page: String(page), pageSize: String(pageSize) }),
       api.stats(filters),
+      api.sites(),
     ]);
   } catch (e) {
     error = e instanceof ApiError ? e.message : "Unexpected error";
@@ -54,6 +56,7 @@ export default async function BookingsPage({ searchParams }: PageProps<"/admin">
             <label className="label" htmlFor="search">Search</label>
             <input className="input" id="search" name="search" placeholder="Name, email, booking ID, click ID, source…" defaultValue={filters.search} />
           </div>
+          {sites.length > 1 && <Select name="site" label="Site" value={filters.site} options={sites.map((x) => [x.id, x.name])} />}
           <Select name="status" label="Booking" value={filters.status} options={Object.entries(bookingStatusMeta).map(([k, m]) => [k, m.label])} />
           <Select name="conversion" label="Conversion" value={filters.conversion} options={Object.entries(conversionStatusMeta).map(([k, m]) => [k, m.label])} />
           <Select name="reconciliation" label="Review" value={filters.reconciliation} options={Object.entries(reconciliationMeta).map(([k, m]) => [k, m.label])} />
@@ -147,7 +150,7 @@ export default async function BookingsPage({ searchParams }: PageProps<"/admin">
           <div className="card table-wrap">
             <table className="data">
               <thead>
-                <tr><th>Affiliate / sub1</th><th className="num">Bookings</th><th className="num">Paid</th><th className="num">Conversions sent</th></tr>
+                <tr><th>Affiliate / sub1</th><th className="num">Bookings</th><th className="num">Paid</th><th className="num">Booked with a postback sent</th></tr>
               </thead>
               <tbody>
                 {stats.sources.map((s) => (
@@ -169,10 +172,11 @@ export default async function BookingsPage({ searchParams }: PageProps<"/admin">
 
 function StatCards({ stats }: { stats: Stats }) {
   const paid = stats.byStatus.Paid ?? 0;
-  const sent = stats.byConversion.Sent ?? 0;
-  const failed = stats.byConversion.Failed ?? 0;
-  const queued = stats.byConversion.Queued ?? 0;
-  const waiting = stats.byConversion.Waiting ?? 0;
+  const leadsSent = stats.leads.Sent ?? 0;
+  const salesSent = stats.sales.Sent ?? 0;
+  const failed = (stats.leads.Failed ?? 0) + (stats.sales.Failed ?? 0);
+  const queued = (stats.leads.Queued ?? 0) + (stats.sales.Queued ?? 0);
+  const waiting = (stats.leads.Waiting ?? 0) + (stats.sales.Waiting ?? 0);
   const unreviewed = stats.byReconciliation.Unreviewed ?? 0;
   const disputed = stats.byReconciliation.Disputed ?? 0;
   const revenue = stats.revenue.length ? stats.revenue.map((r) => fmtMoney(r.amount, r.currency)).join(" + ") : fmtMoney(0, "CAD");
@@ -181,7 +185,8 @@ function StatCards({ stats }: { stats: Stats }) {
     <div className="stats">
       <div className="card stat"><div className="k">Tracked bookings</div><div className="v">{stats.total}</div><div className="s">{stats.unverified} not yet verified by Zylux</div></div>
       <div className="card stat"><div className="k">Paid</div><div className="v">{paid}</div><div className="s">{revenue}</div></div>
-      <div className="card stat"><div className="k">Conversions sent</div><div className="v">{sent}</div><div className="s">{queued} queued · {waiting} waiting</div></div>
+      <div className="card stat"><div className="k">Leads sent</div><div className="v">{leadsSent}</div><div className="s">{queued} queued · {waiting} waiting</div></div>
+      <div className="card stat"><div className="k">Sales sent</div><div className="v">{salesSent}</div><div className="s">Paid meetings reported</div></div>
       <div className={`card stat ${failed ? "bad" : ""}`}><div className="k">Failed postbacks</div><div className="v">{failed}</div><div className="s">Retry from the booking page</div></div>
       <div className={`card stat ${disputed ? "warn" : ""}`}><div className="k">To review</div><div className="v">{unreviewed}</div><div className="s">{disputed} disputed</div></div>
       {stats.cancelledAfterSent > 0 && (

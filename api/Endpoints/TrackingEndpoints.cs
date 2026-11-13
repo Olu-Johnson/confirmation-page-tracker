@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using BookingTracker.Api.Models;
 using BookingTracker.Api.Services;
-using Microsoft.Extensions.Options;
 
 namespace BookingTracker.Api.Endpoints;
 
@@ -14,10 +13,12 @@ namespace BookingTracker.Api.Endpoints;
 /// <param name="ClickId">TrackCrest click ID captured from the landing URL.</param>
 /// <param name="Status">accepted | pending | awaiting_payment</param>
 /// <param name="ClickedAt">When the click was captured (Unix milliseconds).</param>
+/// <param name="SiteKey">The site's key from Admin → Sites (data-site on the script tag). Optional: without it the site is found by the Origin.</param>
+/// <param name="Site">Origin of the page the tracker ran on.</param>
 public record TrackBody(
     string? Uid, string? ClickId, string? AffiliateId, string? Status, string? Title,
     string? StartTime, string? EndTime, string? Sub1, string? Sub2, string? Sub3, string? Sub4, string? Sub5,
-    string? Site, string? LandingUrl, string? Referrer, long? ClickedAt);
+    string? Site, string? LandingUrl, string? Referrer, long? ClickedAt, string? SiteKey = null);
 
 public static partial class TrackingEndpoints
 {
@@ -29,20 +30,24 @@ public static partial class TrackingEndpoints
     public static void MapTrackingEndpoints(this WebApplication app)
     {
         // Called by tracker.js from the client's site. Sent as text/plain so browsers skip the CORS preflight.
-        app.MapPost("/api/track/booking", async (HttpRequest req, BookingEventService svc, IOptions<TrackingOptions> tracking, CancellationToken ct) =>
+        app.MapPost("/api/track/booking", async (HttpRequest req, BookingEventService svc, SiteService sites, CancellationToken ct) =>
         {
-            // CORS alone doesn't stop a "simple" request from being processed, so check the Origin here too.
-            var origin = req.Headers.Origin.ToString();
-            if (!string.IsNullOrEmpty(origin) &&
-                !tracking.Value.AllowedOrigins.Any(o => string.Equals(o.TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase)))
-                return Results.StatusCode(403);
-
             var raw = await ReadLimitedAsync(req.Body, 16 * 1024, ct);
             if (raw is null) return Results.StatusCode(413);
 
             TrackBody? body;
             try { body = JsonSerializer.Deserialize<TrackBody>(raw, Json); }
             catch (JsonException) { return Results.BadRequest(new { error = "invalid json" }); }
+
+            // The site: by the key on the script tag, else by the page's origin. CORS alone doesn't stop a
+            // "simple" request from being processed, so the Origin is checked against the site here too.
+            var origin = req.Headers.Origin.ToString();
+            var key = body?.SiteKey?.Trim();
+            var site = !string.IsNullOrEmpty(key) ? await sites.ByKeyAsync(key, ct) : await sites.ByOriginAsync(origin, ct);
+            if (site is null) return Results.StatusCode(403);
+            if (!string.IsNullOrEmpty(origin) && !site.AllowedOrigins.Any(o =>
+                    string.Equals(SiteOriginCache.NormalizeOrigin(o), SiteOriginCache.NormalizeOrigin(origin), StringComparison.OrdinalIgnoreCase)))
+                return Results.StatusCode(403);
 
             var uid = body?.Uid?.Trim() ?? "";
             var clickId = body?.ClickId?.Trim() ?? "";
@@ -56,7 +61,7 @@ public static partial class TrackingEndpoints
                 Clean(body.Site ?? req.Headers.Origin.ToString(), 200), Clean(body.LandingUrl, 1000), Clean(body.Referrer, 1000),
                 body.ClickedAt is > 0 and < 4102444800000 ? DateTimeOffset.FromUnixTimeMilliseconds(body.ClickedAt.Value) : null);
 
-            var booking = await svc.RecordTrackerAsync(input, ct);
+            var booking = await svc.RecordTrackerAsync(site, input, ct);
             return Results.Ok(new { ok = true, status = booking.Status.ToString(), conversion = booking.ConversionStatus.ToString() });
         })
         .RequireCors("tracker")
@@ -65,46 +70,69 @@ public static partial class TrackingEndpoints
         .WithTags("Tracking")
         .WithSummary("Record a booking from tracker.js")
         .WithDescription("Called by tracker.js on the client's site. Sent as text/plain (JSON body) to avoid a CORS preflight. " +
-                         "The Origin must be in Tracking:AllowedOrigins. Limited to 20 requests per minute per IP. " +
+                         "The site is picked by siteKey (data-site), else by the Origin, which must be one of the site's allowed origins. " +
+                         "Limited to 20 requests per minute per IP. " +
                          "The booking stays 'Unverified' until a signed Zylux webhook confirms it.");
 
-        // Zylux Meet webhook (Settings → Developer → Webhooks). Signed with HMAC-SHA256 of the raw body.
-        app.MapPost("/api/webhooks/zylux", async (HttpRequest req, BookingEventService svc, IOptions<ZyluxOptions> zylux, ILogger<BookingEventService> log, CancellationToken ct) =>
+        // Zylux Meet webhook (Settings → Developer → Webhooks), one URL per site. Signed with HMAC-SHA256 of the raw body.
+        app.MapPost("/api/webhooks/zylux/{siteKey}", async (string siteKey, HttpRequest req, BookingEventService svc, SiteService sites, ILogger<BookingEventService> log, CancellationToken ct) =>
         {
-            var secret = zylux.Value.WebhookSecret;
-            if (string.IsNullOrEmpty(secret))
+            var site = await sites.ByKeyAsync(siteKey, ct);
+            if (site is null) return Results.NotFound(new { error = "unknown site" });
+            if (string.IsNullOrEmpty(site.WebhookSecret))
             {
-                log.LogError("Zylux:WebhookSecret is not configured; rejecting webhook");
-                return Results.Problem("Webhook secret not configured", statusCode: 503);
+                log.LogError("Site {Site} has no webhook secret; rejecting webhook", site.Key);
+                return Results.Problem("Webhook secret not configured for this site", statusCode: 503);
             }
-
             var raw = await ReadLimitedAsync(req.Body, 512 * 1024, ct);
             if (raw is null) return Results.StatusCode(413);
-            if (!SignatureValid(raw, secret, req.Headers["X-Scheduler-Signature-256"].ToString()))
+            if (!SignatureValid(raw, site.WebhookSecret, req.Headers["X-Scheduler-Signature-256"].ToString()))
             {
-                log.LogWarning("Rejected webhook with invalid signature");
+                log.LogWarning("Rejected webhook for site {Site} with invalid signature", site.Key);
                 return Results.Unauthorized();
             }
-
-            string? trigger = req.Headers["X-Scheduler-Trigger"].ToString();
-            try
-            {
-                using var doc = JsonDocument.Parse(raw);
-                if (string.IsNullOrEmpty(trigger) && doc.RootElement.TryGetProperty("triggerEvent", out var t)) trigger = t.GetString();
-            }
-            catch (JsonException) { return Results.BadRequest(new { error = "invalid json" }); }
-            if (string.IsNullOrWhiteSpace(trigger)) return Results.Ok(new { ok = true, ignored = true });
-
-            var matched = await svc.HandleWebhookAsync(trigger.Trim().ToUpperInvariant(), raw, ct);
-            return Results.Ok(new { ok = true, matched });
+            return await HandleAsync(site, raw, req, svc, ct);
         })
         .Accepts<JsonElement>("application/json")
         .WithTags("Webhooks")
-        .WithSummary("Zylux Meet webhook receiver")
-        .WithDescription("Configure in Zylux Meet → Settings → Developer → Webhooks. Requires header X-Scheduler-Signature-256 " +
-                         "(HMAC-SHA256 of the raw body with Zylux:WebhookSecret, lowercase hex) and X-Scheduler-Trigger " +
-                         "(or triggerEvent in the body). Can't be called from Swagger without a valid signature; " +
-                         "use scripts/simulate-booking.sh to test.");
+        .WithSummary("Zylux Meet webhook receiver for one site")
+        .WithDescription("Configure in the site's Zylux Meet account → Settings → Developer → Webhooks, with the site's webhook secret " +
+                         "(Admin → Sites). Requires header X-Scheduler-Signature-256 (HMAC-SHA256 of the raw body, lowercase hex) and " +
+                         "X-Scheduler-Trigger (or triggerEvent in the body). Use scripts/simulate-booking.sh to test.");
+
+        // Older single URL: the site is the one whose secret matches the signature.
+        app.MapPost("/api/webhooks/zylux", async (HttpRequest req, BookingEventService svc, SiteService sites, ILogger<BookingEventService> log, CancellationToken ct) =>
+        {
+            var raw = await ReadLimitedAsync(req.Body, 512 * 1024, ct);
+            if (raw is null) return Results.StatusCode(413);
+            var signature = req.Headers["X-Scheduler-Signature-256"].ToString();
+            var site = (await sites.ActiveAsync(ct)).FirstOrDefault(s => SignatureValid(raw, s.WebhookSecret, signature));
+            if (site is null)
+            {
+                log.LogWarning("Rejected webhook: the signature matches no site's secret");
+                return Results.Unauthorized();
+            }
+            return await HandleAsync(site, raw, req, svc, ct);
+        })
+        .Accepts<JsonElement>("application/json")
+        .WithTags("Webhooks")
+        .WithSummary("Zylux Meet webhook receiver (site found by its secret)")
+        .WithDescription("Kept for webhooks set up before sites existed. Prefer /api/webhooks/zylux/{siteKey}.");
+    }
+
+    static async Task<IResult> HandleAsync(Site site, string raw, HttpRequest req, BookingEventService svc, CancellationToken ct)
+    {
+        string? trigger = req.Headers["X-Scheduler-Trigger"].ToString();
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (string.IsNullOrEmpty(trigger) && doc.RootElement.TryGetProperty("triggerEvent", out var t)) trigger = t.GetString();
+        }
+        catch (JsonException) { return Results.BadRequest(new { error = "invalid json" }); }
+        if (string.IsNullOrWhiteSpace(trigger)) return Results.Ok(new { ok = true, ignored = true });
+
+        var matched = await svc.HandleWebhookAsync(site, trigger.Trim().ToUpperInvariant(), raw, ct);
+        return Results.Ok(new { ok = true, site = site.Key, matched });
     }
 
     public static bool SignatureValid(string body, string secret, string? header)
