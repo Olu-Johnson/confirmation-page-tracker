@@ -175,3 +175,35 @@ pre.json { background: var(--surface-2); border: 1px solid var(--border); border
 .site-form .mode input { margin-top: 3px; }
 .site-form .mode small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; }
 .site-form .check-row { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+
+/* Affiliate payment select (super admin) */
+.inline-form { margin: 0; }
+.select-sm { height: 30px; font-size: 13px; padding: 0 6px; font-weight: 600; }
+.select.aff-pending { color: var(--warn); }
+.select.aff-paid { color: var(--ok); }
+.select.aff-rejected { color: var(--bad); }
+
+/* Signed-in user in the top bar */
+.whoami { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; font-size: 13px; }
+.whoami small { color: var(--text-3); font-size: 12px; }
+@media (max-width: 640px) { .whoami { display: none; } }
+
+/* Site users */
+.user-list { list-style: none; margin: 0; padding: 0; }
+.user-list li { border-top: 1px solid var(--border); padding: 12px 0; }
+.user-list li:first-child { border-top: 0; padding-top: 0; }
+.user-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.user-list details { margin-top: 6px; font-size: 13px; }
+.user-list details .input { flex: 1; min-width: 180px; }
+
+/* Confirmation theme picker (site form) */
+.site-form .themes { display: grid; gap: 8px; }
+.site-form .theme { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; }
+.site-form .theme:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.theme-swatch { width: 44px; height: 32px; border-radius: 6px; display: grid; place-items: center; border: 1px solid var(--border); }
+.theme-swatch > span { width: 26px; height: 18px; border-radius: 3px; display: grid; place-items: center; }
+.theme-swatch i { width: 12px; height: 4px; border-radius: 2px; }
+.theme-text strong { display: flex; gap: 6px; align-items: center; }
+.theme-text small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; }
+.theme-text .theme-default { display: inline; margin: 0; padding: 0 6px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-weight: 600; }
+.theme-preview { font-size: 13px; font-weight: 600; white-space: nowrap; }

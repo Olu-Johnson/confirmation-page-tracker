@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireSuperAdmin } from "@/lib/session";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { env } from "@/lib/env";
@@ -9,6 +10,7 @@ import { ApiErrorBox } from "@/components/Badge";
 export const metadata: Metadata = { title: "Setup" };
 
 export default async function SetupPage() {
+  await requireSuperAdmin();
   let cfg: ApiConfig | null = null;
   let error = "";
   try { cfg = await api.config(); } catch (e) { error = e instanceof ApiError ? e.message : "Unexpected error"; }

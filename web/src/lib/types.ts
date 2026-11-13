@@ -3,6 +3,7 @@ export type ConversionStatus = "Waiting" | "Queued" | "Sent" | "Failed" | "NotEl
 export type ReconciliationStatus = "Unreviewed" | "Confirmed" | "Disputed";
 export type ConversionKind = "Lead" | "Sale";
 export type TrackMode = "Lead" | "Sale" | "Both";
+export type AffiliatePaymentStatus = "Pending" | "Paid" | "Rejected";
 
 /** One postback to TrackCrest for a booking: its lead or its sale. */
 export interface Conversion {
@@ -29,6 +30,8 @@ export interface Site {
   webhookSecretSet: boolean;
   /** Only returned for a single site. */
   webhookSecret: string | null;
+  /** Booking confirmation page theme (lib/themes.ts). */
+  confirmationTheme: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +79,10 @@ export interface TrackedBooking {
   reconciliationStatus: ReconciliationStatus;
   reconciliationNotes: string | null;
   reconciledAt: string | null;
+  /** Whether the affiliate was paid for this booking (super admin sets it). */
+  affiliatePaymentStatus: AffiliatePaymentStatus;
+  /** When the affiliate payment was set to Paid or Rejected. */
+  affiliatePaymentDate: string | null;
   createdAt: string;
   updatedAt: string;
   events: WebhookEvent[];
@@ -115,6 +122,7 @@ export interface Stats {
   byStatus: Partial<Record<BookingStatus, number>>;
   byConversion: Partial<Record<ConversionStatus, number>>;
   byReconciliation: Partial<Record<ReconciliationStatus, number>>;
+  byAffiliatePayment: Partial<Record<AffiliatePaymentStatus, number>>;
   revenue: { currency: string; amount: number }[];
   sources: { source: string; bookings: number; paid: number; conversionsSent: number }[];
   leads: Partial<Record<ConversionStatus, number>>;
@@ -145,7 +153,25 @@ export interface ApiConfig {
   sites: SiteStatus[];
 }
 
-export const FILTER_KEYS = ["search", "site", "status", "conversion", "reconciliation", "verified", "from", "to"] as const;
+export const FILTER_KEYS = ["search", "site", "status", "conversion", "reconciliation", "affiliatePayment", "verified", "from", "to"] as const;
+
+/** A login that sees one site's bookings (Admin → Sites → Users). */
+export interface SiteUser {
+  id: string;
+  siteId: string;
+  email: string;
+  name: string;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export interface SiteUserInput {
+  email?: string;
+  name?: string;
+  password?: string;
+  active?: boolean;
+}
 
 export interface SiteInput {
   key?: string;
@@ -157,4 +183,5 @@ export interface SiteInput {
   webhookSecret?: string;
   regenerateSecret?: boolean;
   active?: boolean;
+  confirmationTheme?: string;
 }

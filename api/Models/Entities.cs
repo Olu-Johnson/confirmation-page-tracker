@@ -48,11 +48,20 @@ public class Site
     public string WebhookSecret { get; set; } = "";
     /// <summary>Origins allowed to call the tracker endpoint for this site, e.g. https://dept.habyyer.com</summary>
     public List<string> AllowedOrigins { get; set; } = [];
+    /// <summary>Look of this site's booking confirmation page, one of <see cref="ConfirmationThemes.All"/>.</summary>
+    public string ConfirmationTheme { get; set; } = ConfirmationThemes.Default;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
     public bool Reports(ConversionKind kind) => Mode == TrackMode.Both || (Mode == TrackMode.Lead ? kind == ConversionKind.Lead : kind == ConversionKind.Sale);
     public string? PostbackUrlFor(ConversionKind kind) => kind == ConversionKind.Lead ? LeadPostbackUrl : SalePostbackUrl;
+}
+
+/// <summary>Confirmation page themes. The web app (web/src/lib/themes.ts) has the same keys.</summary>
+public static class ConfirmationThemes
+{
+    public const string Default = "aurora";
+    public static readonly string[] All = ["aurora", "minimal", "ocean", "sunset", "noir"];
 }
 
 /// <summary>One postback to TrackCrest for a booking: its lead, or its sale.</summary>
@@ -72,6 +81,27 @@ public class Conversion
 
 /// <summary>Manual review state used when reconciling with the business owner.</summary>
 public enum ReconciliationStatus { Unreviewed, Confirmed, Disputed }
+
+/// <summary>Whether the affiliate has been paid for a booking. Set by the super admin only.</summary>
+public enum AffiliatePaymentStatus { Pending, Paid, Rejected }
+
+/// <summary>
+/// A login for one site's team: they see only that site's bookings, read-only.
+/// The super admin (ADMIN_USERNAME in the web app) is not stored here.
+/// </summary>
+public class SiteUser
+{
+    public Guid Id { get; set; }
+    public Guid SiteId { get; set; }
+    /// <summary>Login name, stored lowercase.</summary>
+    public string Email { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public bool Active { get; set; } = true;
+    public DateTimeOffset? LastLoginAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
 
 /// <summary>A Zylux Meet booking made by a visitor who arrived through a TrackCrest tracking link.</summary>
 public class TrackedBooking
@@ -131,6 +161,11 @@ public class TrackedBooking
     public ReconciliationStatus ReconciliationStatus { get; set; } = ReconciliationStatus.Unreviewed;
     public string? ReconciliationNotes { get; set; }
     public DateTimeOffset? ReconciledAt { get; set; }
+
+    // Affiliate payout (super admin only)
+    public AffiliatePaymentStatus AffiliatePaymentStatus { get; set; } = AffiliatePaymentStatus.Pending;
+    /// <summary>When the affiliate payment status was last set to Paid or Rejected; null while Pending.</summary>
+    public DateTimeOffset? AffiliatePaymentDate { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

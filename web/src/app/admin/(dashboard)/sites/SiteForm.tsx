@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import type { Site, TrackMode } from "@/lib/types";
+import { DEFAULT_THEME, THEMES } from "@/lib/themes";
 import { saveSite } from "../../actions";
 
 const MODES: { value: TrackMode; label: string; help: string }[] = [
@@ -52,6 +53,27 @@ export default function SiteForm({ site }: { site?: Site }) {
           From the TrackCrest offer. Only the URLs for what this site reports are used; they can be the same URL with <code>{"{event}"}</code> (lead / sale) in it.
           Placeholders: <code>{PLACEHOLDERS}</code>. With leads and sales, use <code>{"{conversion_id}"}</code> as the transaction ID so TrackCrest doesn&apos;t treat the sale as a duplicate of the lead.
         </p>
+      </div>
+
+      <div className="field">
+        <span className="label">Confirmation page theme</span>
+        <div className="themes">
+          {THEMES.map((t) => (
+            <label key={t.key} className="theme">
+              <input type="radio" name="confirmationTheme" value={t.key} defaultChecked={(site?.confirmationTheme ?? DEFAULT_THEME) === t.key} />
+              <span className="theme-swatch" aria-hidden="true" style={{ background: t.swatch[0] }}>
+                <span style={{ background: t.swatch[1] }}><i style={{ background: t.swatch[2] }} /></span>
+              </span>
+              <span className="theme-text">
+                <strong>{t.name}{t.key === DEFAULT_THEME && <small className="theme-default">Default</small>}</strong>
+                <small>{t.description}</small>
+              </span>
+              <a className="theme-preview" target="_blank" rel="noopener noreferrer"
+                href={`/booking-confirmed${site ? `/${site.key}` : ""}?preview=1&theme=${t.key}`}>Preview ↗</a>
+            </label>
+          ))}
+        </div>
+        <p className="hint">What visitors see after booking. Preview opens it with a sample booking{site ? ` and ${site.name}'s name` : ""}; save to apply it.</p>
       </div>
 
       <div className="field">

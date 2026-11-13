@@ -49,6 +49,36 @@ npm run dev
 
 Admin login: `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `web/.env.local`.
 
+## Confirmation page themes
+
+Each site picks how its booking confirmation page looks (Admin → Sites → *site* → Settings → Confirmation page theme):
+**Aurora** (default, the original), **Minimal**, **Ocean**, **Sunset** or **Noir**. Each one has a **Preview** link that shows
+it with a sample booking.
+
+- `/booking-confirmed/{site-key}`: that site's page, in its theme, with its name and website on the "Back to" button.
+  Use it as the site's Zylux "Redirect on booking" and as `data-confirm-url` (the site page shows both, filled in).
+- `/booking-confirmed`: still works; the site is found from the booking's `uid`, else the default theme and `BRAND_NAME`.
+- `?preview=1&theme=<key>` shows any theme with a sample booking (the theme parameter is ignored without `preview=1`).
+
+To add a theme: add its key to `ConfirmationThemes.All` (api/Models/Entities.cs) and to `THEMES` (web/src/lib/themes.ts),
+then add a `.page[data-theme="<key>"]` block of variables to `web/src/app/booking-confirmed/confirm.module.css`.
+
+## Users and roles
+
+| Who | Signs in with | Sees | Can change |
+|---|---|---|---|
+| **Super admin** | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Every site, Sites, Setup | Everything, including affiliate payment |
+| **Site user** | Email + password (Admin → Sites → *site* → Users) | Only that site's bookings (list, detail, stats, CSV) | Nothing (read-only) |
+
+The web app sends `X-Site-Scope: <site id>` with a site user's API calls. The API then forces the site filter,
+returns 404 for other sites' bookings, hides postback attempts (their URLs carry TrackCrest tokens) and answers 403 to
+every other admin endpoint, so scoping doesn't depend on the UI alone. Turning a user off or deleting them signs
+them out on their next page load.
+
+**Affiliate payment** (per booking, super admin only): `Pending` (default) → `Paid` / `Rejected`, set from the
+bookings list or the booking page. Setting Paid or Rejected stamps the affiliate payment date; going back to Pending
+clears it. It can be filtered on and is in the CSV export.
+
 API docs: Swagger UI at http://localhost:5145/swagger (OpenAPI JSON at `/openapi/v1.json`). Development only, or set
 `EnableSwagger=true`. For admin endpoints click **Authorize** and paste `Admin:ApiKey`.
 

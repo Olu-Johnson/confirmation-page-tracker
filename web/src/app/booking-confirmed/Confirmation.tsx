@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { getTheme } from "@/lib/themes";
 import styles from "./confirm.module.css";
 
 interface Props {
@@ -12,6 +13,10 @@ interface Props {
   brandName: string;
   brandSiteUrl: string;
   zyluxBaseUrl: string;
+  /** Theme key (see lib/themes.ts). */
+  theme: string;
+  /** Shown as a banner when the page is a theme preview with sample data. */
+  preview?: boolean;
 }
 
 const DEFAULT_MINUTES = 60;
@@ -29,7 +34,8 @@ export default function Confirmation(p: Props) {
   const start = parse(p.startTime);
   const end = parse(p.endTime) ?? (start ? new Date(start.getTime() + DEFAULT_MINUTES * 60000) : null);
   const title = p.title || "Your consultation";
-  const manageUrl = p.uid ? `${p.zyluxBaseUrl}/booking/${encodeURIComponent(p.uid)}` : "";
+  // The booking's Zylux Meet page, used only to pay for an unpaid booking.
+  const payUrl = p.uid ? `${p.zyluxBaseUrl}/booking/${encodeURIComponent(p.uid)}` : "";
   const joinUrl = p.uid ? `${p.zyluxBaseUrl}/join/${encodeURIComponent(p.uid)}` : "";
 
   // Times depend on the visitor's time zone, so format them only in the browser (after hydration).
@@ -44,7 +50,7 @@ export default function Confirmation(p: Props) {
 
   let calendar: { google: string; outlook: string; ics: string } | null = null;
   if (start && end) {
-    const details = [joinUrl && `Join: ${joinUrl}`, manageUrl && `Reschedule or cancel: ${manageUrl}`].filter(Boolean).join("\n");
+    const details = joinUrl ? `Join: ${joinUrl}` : "";
     const ics = [
       "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Booking Tracker//EN", "BEGIN:VEVENT",
       `UID:${p.uid || stamp(start)}@booking`, `DTSTAMP:${stamp(start)}`,
@@ -68,11 +74,13 @@ export default function Confirmation(p: Props) {
         : { tone: styles.toneOk, eyebrow: "Booking confirmed", heading: "You're booked in!", lead: "A confirmation email with the meeting details and a calendar invite is on its way to your inbox." };
 
   const confirmed = p.status === "accepted";
-  useConfetti(confirmed);
+  const theme = getTheme(p.theme);
+  useConfetti(confirmed ? theme.confetti : null);
 
   return (
-    <div className={styles.page}>
-      <canvas className={styles.confetti} id="confetti" aria-hidden="true" />
+    <div className={styles.page} data-theme={theme.key}>
+      {p.preview && <div className={styles.preview}>Preview of the {theme.name} theme with a sample booking</div>}
+      {theme.confetti && <canvas className={styles.confetti} id="confetti" aria-hidden="true" />}
       <main className={styles.card}>
         <div className={`${styles.badge} ${variant.tone}`} aria-hidden="true">
           {confirmed ? (
@@ -120,9 +128,8 @@ export default function Confirmation(p: Props) {
         </div>}
 
         <div className={styles.actions}>
-          {manageUrl && p.status === "awaiting_payment" && <a className={`${styles.btn} ${styles.primary}`} href={manageUrl}>Pay now</a>}
+          {payUrl && p.status === "awaiting_payment" && <a className={`${styles.btn} ${styles.primary}`} href={payUrl}>Pay now</a>}
           {joinUrl && confirmed && <a className={`${styles.btn} ${styles.primary}`} href={joinUrl} target="_blank" rel="noopener noreferrer">Meeting link</a>}
-          {manageUrl && p.status !== "cancelled" && p.status !== "rejected" && <a className={`${styles.btn} ${styles.secondary}`} href={manageUrl} target="_blank" rel="noopener noreferrer">Reschedule or cancel</a>}
           <a className={`${styles.btn} ${styles.secondary}`} href={p.brandSiteUrl}>Back to {p.brandName}</a>
         </div>
       </main>
@@ -130,10 +137,10 @@ export default function Confirmation(p: Props) {
   );
 }
 
-function useConfetti(enabled: boolean) {
+function useConfetti(colors: string[] | null) {
   const ran = useRef(false);
   useEffect(() => {
-    if (!enabled || ran.current) return;
+    if (!colors || ran.current) return;
     ran.current = true;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const c = document.getElementById("confetti") as HTMLCanvasElement | null;
@@ -141,7 +148,6 @@ function useConfetti(enabled: boolean) {
     if (!c || !ctx) return;
     c.width = window.innerWidth;
     c.height = window.innerHeight;
-    const colors = ["#5b3fd6", "#f59e0b", "#10b981", "#ec4899", "#3b82f6", "#facc15"];
     const pieces = Array.from({ length: 140 }, (_, i) => ({
       x: Math.random() * c.width, y: -20 - Math.random() * c.height * 0.5,
       w: 6 + Math.random() * 6, h: 10 + Math.random() * 8, color: colors[i % colors.length],
@@ -161,5 +167,5 @@ function useConfetti(enabled: boolean) {
     };
     const t = setTimeout(() => { raf = requestAnimationFrame(tick); }, 300);
     return () => { clearTimeout(t); cancelAnimationFrame(raf); };
-  }, [enabled]);
+  }, [colors]);
 }

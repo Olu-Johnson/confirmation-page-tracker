@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { requireSuperAdmin } from "@/lib/session";
 import Link from "next/link";
 import SiteForm from "../SiteForm";
 
 export const metadata: Metadata = { title: "Add site" };
 
-export default function NewSitePage() {
+export default async function NewSitePage() {
+  await requireSuperAdmin();
   return (
     <>
       <div className="page-head">
