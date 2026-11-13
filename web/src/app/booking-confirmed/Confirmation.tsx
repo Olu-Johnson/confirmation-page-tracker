@@ -29,7 +29,8 @@ export default function Confirmation(p: Props) {
   const start = parse(p.startTime);
   const end = parse(p.endTime) ?? (start ? new Date(start.getTime() + DEFAULT_MINUTES * 60000) : null);
   const title = p.title || "Your consultation";
-  const manageUrl = p.uid ? `${p.zyluxBaseUrl}/booking/${encodeURIComponent(p.uid)}` : "";
+  // The booking's Zylux Meet page, used only to pay for an unpaid booking.
+  const payUrl = p.uid ? `${p.zyluxBaseUrl}/booking/${encodeURIComponent(p.uid)}` : "";
   const joinUrl = p.uid ? `${p.zyluxBaseUrl}/join/${encodeURIComponent(p.uid)}` : "";
 
   // Times depend on the visitor's time zone, so format them only in the browser (after hydration).
@@ -44,7 +45,7 @@ export default function Confirmation(p: Props) {
 
   let calendar: { google: string; outlook: string; ics: string } | null = null;
   if (start && end) {
-    const details = [joinUrl && `Join: ${joinUrl}`, manageUrl && `Reschedule or cancel: ${manageUrl}`].filter(Boolean).join("\n");
+    const details = joinUrl ? `Join: ${joinUrl}` : "";
     const ics = [
       "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Booking Tracker//EN", "BEGIN:VEVENT",
       `UID:${p.uid || stamp(start)}@booking`, `DTSTAMP:${stamp(start)}`,
@@ -120,9 +121,8 @@ export default function Confirmation(p: Props) {
         </div>}
 
         <div className={styles.actions}>
-          {manageUrl && p.status === "awaiting_payment" && <a className={`${styles.btn} ${styles.primary}`} href={manageUrl}>Pay now</a>}
+          {payUrl && p.status === "awaiting_payment" && <a className={`${styles.btn} ${styles.primary}`} href={payUrl}>Pay now</a>}
           {joinUrl && confirmed && <a className={`${styles.btn} ${styles.primary}`} href={joinUrl} target="_blank" rel="noopener noreferrer">Meeting link</a>}
-          {manageUrl && p.status !== "cancelled" && p.status !== "rejected" && <a className={`${styles.btn} ${styles.secondary}`} href={manageUrl} target="_blank" rel="noopener noreferrer">Reschedule or cancel</a>}
           <a className={`${styles.btn} ${styles.secondary}`} href={p.brandSiteUrl}>Back to {p.brandName}</a>
         </div>
       </main>
