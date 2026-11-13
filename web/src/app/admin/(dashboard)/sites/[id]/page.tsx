@@ -10,6 +10,7 @@ import { regenerateSiteSecret } from "../../../actions";
 import ConfirmButton from "../../bookings/[id]/ConfirmButton";
 import SiteForm from "../SiteForm";
 import SiteUsers from "./SiteUsers";
+import { getTheme } from "@/lib/themes";
 
 export const metadata: Metadata = { title: "Site" };
 
@@ -37,16 +38,18 @@ export default async function SitePage({ params, searchParams }: PageProps<"/adm
   const app = await getAppUrl();
   const apiUrl = env.apiPublicUrl();
   const origin = site.allowedOrigins[0] ?? "https://client-site.com";
+  const confirmUrl = `${app}/booking-confirmed/${site.key}`;
+  const theme = getTheme(site.confirmationTheme);
   const snippet = `<script src="${app}/tracker.js" data-booking-tracker
         data-site="${site.key}"
         data-api="${apiUrl}"
-        data-confirm-url="${app}/booking-confirmed" async></script>`;
+        data-confirm-url="${confirmUrl}" async></script>`;
   const nextSnippet = `// app/layout.tsx
 import Script from "next/script";
 ...
 <Script src="${app}/tracker.js" strategy="afterInteractive"
         data-booking-tracker data-site="${site.key}" data-api="${apiUrl}"
-        data-confirm-url="${app}/booking-confirmed" />`;
+        data-confirm-url="${confirmUrl}" />`;
 
   return (
     <>
@@ -119,7 +122,11 @@ import Script from "next/script";
                 <div>
                   <strong>Zylux Meet redirect on booking</strong>
                   <p>In each event → Advanced → Redirect on booking, enter this site&apos;s confirmation page:</p>
-                  <div className="code-block">{`${app}/booking-confirmed`}</div>
+                  <div className="code-block">{confirmUrl}</div>
+                  <p style={{ marginTop: 8 }}>
+                    Theme: <strong>{theme.name}</strong> (change it under Settings) ·{" "}
+                    <a href={`${confirmUrl}?preview=1`} target="_blank" rel="noopener noreferrer">Preview this page ↗</a>
+                  </p>
                   <p className="hint">Zylux Meet sends people there once everything is done: right after booking for a free meeting, after the payment goes through for a paid one. It works from the embed and from the Zylux Meet page itself, and the page checks the booking&apos;s real status with Zylux Meet. The lead/sale doesn&apos;t depend on it: that comes from the webhook.</p>
                 </div>
               </li>

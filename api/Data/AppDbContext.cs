@@ -67,6 +67,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.LeadPostbackUrl).HasMaxLength(2000);
             e.Property(x => x.SalePostbackUrl).HasMaxLength(2000);
             e.Property(x => x.WebhookSecret).HasMaxLength(200);
+            e.Property(x => x.ConfirmationTheme).HasMaxLength(30);
         });
 
         b.Entity<SiteUser>(e =>

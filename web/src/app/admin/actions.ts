@@ -80,6 +80,7 @@ export async function saveSite(_prev: { error?: string } | undefined, form: Form
     salePostbackUrl: String(form.get("salePostbackUrl") ?? ""),
     allowedOrigins: String(form.get("allowedOrigins") ?? "").split(/[\s,]+/).filter(Boolean),
     active: form.get("active") === "on",
+    confirmationTheme: String(form.get("confirmationTheme") ?? "") || undefined,
   };
   const secret = String(form.get("webhookSecret") ?? "").trim();
   if (secret) body.webhookSecret = secret;

@@ -30,6 +30,8 @@ export interface Site {
   webhookSecretSet: boolean;
   /** Only returned for a single site. */
   webhookSecret: string | null;
+  /** Booking confirmation page theme (lib/themes.ts). */
+  confirmationTheme: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -181,4 +183,5 @@ export interface SiteInput {
   webhookSecret?: string;
   regenerateSecret?: boolean;
   active?: boolean;
+  confirmationTheme?: string;
 }

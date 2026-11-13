@@ -48,11 +48,20 @@ public class Site
     public string WebhookSecret { get; set; } = "";
     /// <summary>Origins allowed to call the tracker endpoint for this site, e.g. https://dept.habyyer.com</summary>
     public List<string> AllowedOrigins { get; set; } = [];
+    /// <summary>Look of this site's booking confirmation page, one of <see cref="ConfirmationThemes.All"/>.</summary>
+    public string ConfirmationTheme { get; set; } = ConfirmationThemes.Default;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
     public bool Reports(ConversionKind kind) => Mode == TrackMode.Both || (Mode == TrackMode.Lead ? kind == ConversionKind.Lead : kind == ConversionKind.Sale);
     public string? PostbackUrlFor(ConversionKind kind) => kind == ConversionKind.Lead ? LeadPostbackUrl : SalePostbackUrl;
+}
+
+/// <summary>Confirmation page themes. The web app (web/src/lib/themes.ts) has the same keys.</summary>
+public static class ConfirmationThemes
+{
+    public const string Default = "aurora";
+    public static readonly string[] All = ["aurora", "minimal", "ocean", "sunset", "noir"];
 }
 
 /// <summary>One postback to TrackCrest for a booking: its lead, or its sale.</summary>

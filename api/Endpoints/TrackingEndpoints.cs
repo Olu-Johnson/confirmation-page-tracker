@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using BookingTracker.Api.Data;
 using BookingTracker.Api.Models;
+using Microsoft.EntityFrameworkCore;
 using BookingTracker.Api.Services;
 
 namespace BookingTracker.Api.Endpoints;
@@ -30,6 +32,23 @@ public static partial class TrackingEndpoints
     public static void MapTrackingEndpoints(this WebApplication app)
     {
         // Called by tracker.js from the client's site. Sent as text/plain so browsers skip the CORS preflight.
+        // Public: what the booking confirmation page should look like. By site key (the page's
+        // /booking-confirmed/{key} URL), else by the booking's uid. Only the name, website and theme.
+        app.MapGet("/api/public/confirmation", async (string? site, string? uid, AppDbContext db, CancellationToken ct) =>
+        {
+            Site? s = null;
+            if (!string.IsNullOrWhiteSpace(site))
+                s = await db.Sites.AsNoTracking().FirstOrDefaultAsync(x => x.Key == site.Trim().ToLower() && x.Active, ct);
+            if (s is null && !string.IsNullOrWhiteSpace(uid) && uid.Length <= 100)
+            {
+                var siteId = await db.Bookings.AsNoTracking().Where(b => b.BookingUid == uid || b.OriginalBookingUid == uid)
+                    .Select(b => b.SiteId).FirstOrDefaultAsync(ct);
+                if (siteId is { } id) s = await db.Sites.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.Active, ct);
+            }
+            if (s is null) return Results.NotFound();
+            return Results.Ok(new { key = s.Key, name = s.Name, websiteUrl = s.AllowedOrigins.FirstOrDefault(), theme = s.ConfirmationTheme });
+        }).WithTags("Tracking").WithSummary("Confirmation page settings for a site (by key or booking uid)");
+
         app.MapPost("/api/track/booking", async (HttpRequest req, BookingEventService svc, SiteService sites, CancellationToken ct) =>
         {
             var raw = await ReadLimitedAsync(req.Body, 16 * 1024, ct);

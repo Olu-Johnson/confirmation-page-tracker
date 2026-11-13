@@ -38,16 +38,16 @@ public sealed class SiteScopeAllowed;
 /// <param name="RegenerateSecret">Replace the webhook secret with a new random one.</param>
 public record SiteInput(
     string? Key, string? Name, string? Mode, string? LeadPostbackUrl, string? SalePostbackUrl,
-    string[]? AllowedOrigins, string? WebhookSecret, bool? RegenerateSecret, bool? Active);
+    string[]? AllowedOrigins, string? WebhookSecret, bool? RegenerateSecret, bool? Active, string? ConfirmationTheme = null);
 
 /// <summary>A site as the admin sees it. The webhook secret is only returned by GET /sites/{id}.</summary>
 public record SiteView(
     Guid Id, string Key, string Name, bool Active, TrackMode Mode, string? LeadPostbackUrl, string? SalePostbackUrl,
-    List<string> AllowedOrigins, bool WebhookSecretSet, string? WebhookSecret, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+    List<string> AllowedOrigins, bool WebhookSecretSet, string? WebhookSecret, string ConfirmationTheme, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
 {
     public static SiteView From(Site s, bool withSecret = false) => new(
         s.Id, s.Key, s.Name, s.Active, s.Mode, s.LeadPostbackUrl, s.SalePostbackUrl, s.AllowedOrigins,
-        s.WebhookSecret != "", withSecret ? s.WebhookSecret : null, s.CreatedAt, s.UpdatedAt);
+        s.WebhookSecret != "", withSecret ? s.WebhookSecret : null, s.ConfirmationTheme, s.CreatedAt, s.UpdatedAt);
 }
 
 public static class AdminEndpoints
@@ -441,6 +441,13 @@ public static class AdminEndpoints
             site.WebhookSecret = secret;
         }
         if (body.Active is { } active) site.Active = active;
+        if (body.ConfirmationTheme is not null)
+        {
+            var theme = body.ConfirmationTheme.Trim().ToLowerInvariant();
+            if (theme.Length == 0) theme = ConfirmationThemes.Default;
+            if (!ConfirmationThemes.All.Contains(theme)) return $"Theme must be one of: {string.Join(", ", ConfirmationThemes.All)}.";
+            site.ConfirmationTheme = theme;
+        }
         return null;
     }
 

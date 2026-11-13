@@ -49,6 +49,20 @@ npm run dev
 
 Admin login: `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `web/.env.local`.
 
+## Confirmation page themes
+
+Each site picks how its booking confirmation page looks (Admin → Sites → *site* → Settings → Confirmation page theme):
+**Aurora** (default, the original), **Minimal**, **Ocean**, **Sunset** or **Noir**. Each one has a **Preview** link that shows
+it with a sample booking.
+
+- `/booking-confirmed/{site-key}`: that site's page, in its theme, with its name and website on the "Back to" button.
+  Use it as the site's Zylux "Redirect on booking" and as `data-confirm-url` (the site page shows both, filled in).
+- `/booking-confirmed`: still works; the site is found from the booking's `uid`, else the default theme and `BRAND_NAME`.
+- `?preview=1&theme=<key>` shows any theme with a sample booking (the theme parameter is ignored without `preview=1`).
+
+To add a theme: add its key to `ConfirmationThemes.All` (api/Models/Entities.cs) and to `THEMES` (web/src/lib/themes.ts),
+then add a `.page[data-theme="<key>"]` block of variables to `web/src/app/booking-confirmed/confirm.module.css`.
+
 ## Users and roles
 
 | Who | Signs in with | Sees | Can change |
