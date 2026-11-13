@@ -220,7 +220,8 @@ public partial class BookingEventService(
         var paid = false;
         if (p.TryGetProperty("payment", out var pay) && pay.ValueKind == JsonValueKind.Object)
         {
-            b.Amount = Dec(pay, "amount") ?? b.Amount;
+            // Zylux Meet sends amounts as amount × 100 for every currency (5000 = 50.00, ¥1,000 = 100000).
+            b.Amount = Dec(pay, "amount") is { } cents ? cents / 100m : b.Amount;
             b.Currency = Str(pay, "currency")?.ToUpperInvariant() ?? b.Currency;
             b.PaymentStatus = Str(pay, "status") ?? b.PaymentStatus;
             b.PaymentProvider = Str(pay, "provider") ?? b.PaymentProvider;
