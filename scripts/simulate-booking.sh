@@ -33,8 +33,9 @@ payload() { # $1 uid, $2 status, $3 payment json or null, $4 tracking json or nu
   echo "{\"uid\":\"$1\",\"title\":\"Consultation between Dept Global and Ada\",\"startTime\":\"$START\",\"endTime\":\"$END\",\"status\":\"$2\",\"organizer\":{\"name\":\"Dept Global Solutions\",\"email\":\"owner@example.com\",\"timeZone\":\"America/Toronto\"},\"attendees\":[{\"name\":\"Ada Test\",\"email\":\"ada@example.com\",\"timeZone\":\"Africa/Lagos\"}],\"location\":{\"type\":\"cal-video\",\"url\":\"https://meet.jit.si/sim\"},\"payment\":$3,\"tracking\":$4}"
 }
 
-PENDING='{"amount":50,"currency":"cad","status":"unpaid","provider":"stripe"}'
-PAID='{"amount":50,"currency":"cad","status":"paid","provider":"stripe"}'
+# Zylux Meet amounts are × 100 (5000 = 50.00)
+PENDING='{"amount":5000,"currency":"cad","status":"unpaid","provider":"stripe"}'
+PAID='{"amount":5000,"currency":"cad","status":"paid","provider":"stripe"}'
 
 # (JSON built in variables first: bash 3.2 mangles escaped quotes inside "$(...)".)
 UID1="bk_sim${TS}a"
