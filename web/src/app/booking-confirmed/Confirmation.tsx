@@ -60,7 +60,9 @@ export default function Confirmation(p: Props) {
 
   const variant =
     p.status === "awaiting_payment"
-      ? { tone: styles.toneWarn, eyebrow: "One more step", heading: "Complete your payment", lead: "Your slot is held. Finish the payment in the tab that just opened to confirm your booking — you'll get a confirmation email once it's paid." }
+      ? { tone: styles.toneWarn, eyebrow: "One more step", heading: "Complete your payment", lead: "Your slot is held, but the booking isn't confirmed until it's paid. Pay now to secure it — you'll get a confirmation email once it's paid." }
+      : p.status === "cancelled" || p.status === "rejected"
+        ? { tone: styles.toneWarn, eyebrow: "Not booked", heading: "This booking isn't active", lead: `This booking was ${p.status}. You can book a new time from ${p.brandName}'s website.` }
       : p.status === "pending"
         ? { tone: styles.toneWarn, eyebrow: "Request received", heading: "Almost there!", lead: "Your request has been sent. You'll get an email as soon as it's confirmed." }
         : { tone: styles.toneOk, eyebrow: "Booking confirmed", heading: "You're booked in!", lead: "A confirmation email with the meeting details and a calendar invite is on its way to your inbox." };
@@ -107,7 +109,7 @@ export default function Confirmation(p: Props) {
           </div>
         )}
 
-        <div className={styles.next}>
+        {p.status !== "cancelled" && p.status !== "rejected" && <div className={styles.next}>
           <h2>What happens next</h2>
           <ul>
             {p.status === "awaiting_payment" && <li>Complete the payment to secure your slot.</li>}
@@ -115,11 +117,12 @@ export default function Confirmation(p: Props) {
             <li>You&apos;ll get a reminder before the meeting.</li>
             <li>Your meeting link opens 5 minutes before the start time.</li>
           </ul>
-        </div>
+        </div>}
 
         <div className={styles.actions}>
+          {manageUrl && p.status === "awaiting_payment" && <a className={`${styles.btn} ${styles.primary}`} href={manageUrl}>Pay now</a>}
           {joinUrl && confirmed && <a className={`${styles.btn} ${styles.primary}`} href={joinUrl} target="_blank" rel="noopener noreferrer">Meeting link</a>}
-          {manageUrl && <a className={`${styles.btn} ${styles.secondary}`} href={manageUrl} target="_blank" rel="noopener noreferrer">Reschedule or cancel</a>}
+          {manageUrl && p.status !== "cancelled" && p.status !== "rejected" && <a className={`${styles.btn} ${styles.secondary}`} href={manageUrl} target="_blank" rel="noopener noreferrer">Reschedule or cancel</a>}
           <a className={`${styles.btn} ${styles.secondary}`} href={p.brandSiteUrl}>Back to {p.brandName}</a>
         </div>
       </main>
