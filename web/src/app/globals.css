@@ -175,3 +175,23 @@ pre.json { background: var(--surface-2); border: 1px solid var(--border); border
 .site-form .mode input { margin-top: 3px; }
 .site-form .mode small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; }
 .site-form .check-row { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+
+/* Affiliate payment select (super admin) */
+.inline-form { margin: 0; }
+.select-sm { height: 30px; font-size: 13px; padding: 0 6px; font-weight: 600; }
+.select.aff-pending { color: var(--warn); }
+.select.aff-paid { color: var(--ok); }
+.select.aff-rejected { color: var(--bad); }
+
+/* Signed-in user in the top bar */
+.whoami { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; font-size: 13px; }
+.whoami small { color: var(--text-3); font-size: 12px; }
+@media (max-width: 640px) { .whoami { display: none; } }
+
+/* Site users */
+.user-list { list-style: none; margin: 0; padding: 0; }
+.user-list li { border-top: 1px solid var(--border); padding: 12px 0; }
+.user-list li:first-child { border-top: 0; padding-top: 0; }
+.user-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.user-list details { margin-top: 6px; font-size: 13px; }
+.user-list details .input { flex: 1; min-width: 180px; }

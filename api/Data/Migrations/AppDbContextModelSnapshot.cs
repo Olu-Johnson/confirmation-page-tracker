@@ -176,6 +176,52 @@ namespace BookingTracker.Api.Data.Migrations
                     b.ToTable("sites", (string)null);
                 });
 
+            modelBuilder.Entity("BookingTracker.Api.Models.SiteUser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("SiteId");
+
+                    b.ToTable("site_users", (string)null);
+                });
+
             modelBuilder.Entity("BookingTracker.Api.Models.TrackedBooking", b =>
                 {
                     b.Property<Guid>("Id")
@@ -185,6 +231,14 @@ namespace BookingTracker.Api.Data.Migrations
                     b.Property<string>("AffiliateId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("AffiliatePaymentDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AffiliatePaymentStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<decimal?>("Amount")
                         .HasPrecision(18, 2)
@@ -331,6 +385,8 @@ namespace BookingTracker.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AffiliatePaymentStatus");
+
                     b.HasIndex("BookingUid")
                         .IsUnique();
 
@@ -405,6 +461,15 @@ namespace BookingTracker.Api.Data.Migrations
                     b.HasOne("BookingTracker.Api.Models.TrackedBooking", null)
                         .WithMany("Attempts")
                         .HasForeignKey("TrackedBookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("BookingTracker.Api.Models.SiteUser", b =>
+                {
+                    b.HasOne("BookingTracker.Api.Models.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

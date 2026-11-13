@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import { requireSuperAdmin } from "@/lib/session";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { env, getAppUrl } from "@/lib/env";
-import type { Site } from "@/lib/types";
+import type { Site, SiteUser } from "@/lib/types";
 import { ApiErrorBox } from "@/components/Badge";
 import { regenerateSiteSecret } from "../../../actions";
 import ConfirmButton from "../../bookings/[id]/ConfirmButton";
 import SiteForm from "../SiteForm";
+import SiteUsers from "./SiteUsers";
 
 export const metadata: Metadata = { title: "Site" };
 
@@ -17,13 +19,15 @@ const TRIGGERS = [
 ];
 
 export default async function SitePage({ params, searchParams }: PageProps<"/admin/sites/[id]">) {
+  await requireSuperAdmin();
   const { id } = await params;
   const { msg } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   let site: Site;
+  let users: SiteUser[] = [];
   try {
-    site = await api.site(id);
+    [site, users] = await Promise.all([api.site(id), api.siteUsers(id)]);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     return <ApiErrorBox message={e instanceof ApiError ? e.message : "Unexpected error"} />;
@@ -57,6 +61,10 @@ import Script from "next/script";
 
       {message === "saved" && <div className="alert tone-ok">Site saved.</div>}
       {message === "secret" && <div className="alert tone-ok">New webhook secret created. Update it in Zylux Meet now: webhooks signed with the old one are rejected.</div>}
+      {message === "user-added" && <div className="alert tone-ok">User added. They can sign in with their email and password.</div>}
+      {message === "user-saved" && <div className="alert tone-ok">User updated.</div>}
+      {message === "user-password" && <div className="alert tone-ok">Password changed.</div>}
+      {message === "user-deleted" && <div className="alert tone-ok">User deleted.</div>}
       {message.startsWith("error:") && <div className="alert tone-bad">{message.slice(6)}</div>}
 
       <div className="detail-grid">
@@ -124,6 +132,7 @@ import Script from "next/script";
             <h2>Settings</h2>
             <SiteForm site={site} />
           </section>
+          <SiteUsers siteId={site.id} siteName={site.name} users={users} />
         </div>
       </div>
     </>

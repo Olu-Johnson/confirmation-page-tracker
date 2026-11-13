@@ -1,4 +1,4 @@
-import type { BookingStatus, ConversionStatus, ReconciliationStatus } from "./types";
+import type { AffiliatePaymentStatus, BookingStatus, ConversionStatus, ReconciliationStatus } from "./types";
 
 const TZ = process.env.ADMIN_TIMEZONE || "UTC";
 
@@ -45,4 +45,10 @@ export const reconciliationMeta: Record<ReconciliationStatus, { label: string; t
   Unreviewed: { label: "Unreviewed", tone: "muted" },
   Confirmed: { label: "Confirmed", tone: "ok" },
   Disputed: { label: "Disputed", tone: "bad" },
+};
+
+export const affiliatePaymentMeta: Record<AffiliatePaymentStatus, { label: string; tone: Tone }> = {
+  Pending: { label: "Pending", tone: "warn" },
+  Paid: { label: "Paid", tone: "ok" },
+  Rejected: { label: "Rejected", tone: "bad" },
 };

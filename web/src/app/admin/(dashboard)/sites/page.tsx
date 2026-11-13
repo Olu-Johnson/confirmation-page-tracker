@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireSuperAdmin } from "@/lib/session";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
@@ -10,6 +11,7 @@ export const metadata: Metadata = { title: "Sites" };
 const MODE_LABEL = { Lead: "Leads", Sale: "Sales", Both: "Leads + sales" } as const;
 
 export default async function SitesPage() {
+  await requireSuperAdmin();
   let sites: SiteStatus[] = [];
   let error = "";
   try { sites = (await api.config()).sites; } catch (e) { error = e instanceof ApiError ? e.message : "Unexpected error"; }

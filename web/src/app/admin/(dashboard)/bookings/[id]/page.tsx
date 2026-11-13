@@ -5,13 +5,17 @@ import { api, ApiError } from "@/lib/api";
 import { conversionStatusMeta, fmtDateTime, fmtMoney } from "@/lib/format";
 import type { Conversion, ConversionKind, Site, TrackedBooking } from "@/lib/types";
 import { env } from "@/lib/env";
-import { ApiErrorBox, Badge, BookingBadge, ConversionBadge, ReconciliationBadge } from "@/components/Badge";
+import { requireAdmin } from "@/lib/session";
+import { AffiliatePaymentBadge, ApiErrorBox, Badge, BookingBadge, ConversionBadge, ReconciliationBadge } from "@/components/Badge";
+import AffiliatePaymentSelect from "@/components/AffiliatePaymentSelect";
 import { sendConversion, updateReconciliation } from "../../../actions";
 import ConfirmButton from "./ConfirmButton";
 
 export const metadata: Metadata = { title: "Booking" };
 
 export default async function BookingDetailPage({ params, searchParams }: PageProps<"/admin/bookings/[id]">) {
+  const session = await requireAdmin();
+  const isSuper = session.role === "super";
   const { id } = await params;
   const { msg } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
@@ -97,7 +101,7 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
               <dt>Sub IDs</dt><dd className="mono">{subs.length ? subs.join("  ") : "—"}</dd>
               <dt>Clicked at</dt><dd>{fmtDateTime(b.clickedAt)}</dd>
               <dt>Tracked at</dt><dd>{fmtDateTime(b.createdAt)}</dd>
-              <dt>Site</dt><dd>{site ? <Link href={`/admin/sites/${site.id}`}>{site.name}</Link> : "—"}{b.site && <span className="cell-sub"> · {b.site}</span>}</dd>
+              <dt>Site</dt><dd>{site ? (isSuper ? <Link href={`/admin/sites/${site.id}`}>{site.name}</Link> : site.name) : "—"}{b.site && <span className="cell-sub"> · {b.site}</span>}</dd>
               <dt>Zylux tracking</dt><dd className="mono">{b.tracking ? Object.entries(b.tracking).map(([k, v]) => `${k}=${v}`).join("  ") : "—"}</dd>
               <dt>Landing URL</dt><dd className="mono">{b.landingUrl ?? "—"}</dd>
               <dt>Referrer</dt><dd className="mono">{b.referrer ?? "—"}</dd>
@@ -129,7 +133,7 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
             <h2>TrackCrest conversions</h2>
             {site && <p className="hint" style={{ marginTop: 0 }}>{site.name} reports {site.mode === "Both" ? "leads and sales" : site.mode === "Lead" ? "leads" : "sales"}.</p>}
             {kinds.map((kind) => (
-              <ConversionBlock key={kind} bookingId={b.id} kind={kind} conversion={b.conversions.find((c) => c.kind === kind)} reported={!site || site.mode === "Both" || site.mode === kind} />
+              <ConversionBlock key={kind} bookingId={b.id} kind={kind} conversion={b.conversions.find((c) => c.kind === kind)} reported={!site || site.mode === "Both" || site.mode === kind} canSend={isSuper} />
             ))}
             {b.attempts.length > 0 && (
               <>
@@ -155,6 +159,17 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
           </section>
 
           <section className="card card-pad">
+            <h2>Affiliate payment</h2>
+            <dl className="kv">
+              <dt>Status</dt>
+              <dd>{isSuper ? <AffiliatePaymentSelect id={b.id} status={b.affiliatePaymentStatus} /> : <AffiliatePaymentBadge status={b.affiliatePaymentStatus} />}</dd>
+              <dt>Date set</dt><dd>{fmtDateTime(b.affiliatePaymentDate)}</dd>
+            </dl>
+            {isSuper && <p className="hint">Saved as soon as you change it. Paid or Rejected records today&apos;s date; Pending clears it.</p>}
+          </section>
+
+          {isSuper ? (
+          <section className="card card-pad">
             <h2>Reconciliation</h2>
             <form action={updateReconciliation}>
               <input type="hidden" name="id" value={b.id} />
@@ -170,13 +185,23 @@ export default async function BookingDetailPage({ params, searchParams }: PagePr
               <div className="actions-row"><button className="btn btn-primary btn-sm" type="submit">Save review</button></div>
             </form>
           </section>
+          ) : (
+          <section className="card card-pad">
+            <h2>Reconciliation</h2>
+            <dl className="kv">
+              <dt>Review</dt><dd><ReconciliationBadge status={b.reconciliationStatus} /></dd>
+              <dt>Notes</dt><dd>{b.reconciliationNotes || "—"}</dd>
+              <dt>Reviewed</dt><dd>{fmtDateTime(b.reconciledAt)}</dd>
+            </dl>
+          </section>
+          )}
         </div>
       </div>
     </>
   );
 }
 
-function ConversionBlock({ bookingId, kind, conversion: c, reported }: { bookingId: string; kind: ConversionKind; conversion?: Conversion; reported: boolean }) {
+function ConversionBlock({ bookingId, kind, conversion: c, reported, canSend }: { bookingId: string; kind: ConversionKind; conversion?: Conversion; reported: boolean; canSend: boolean }) {
   if (!c && !reported) return null;
   const label = kind === "Lead" ? "Lead" : "Sale";
   return (
@@ -189,7 +214,7 @@ function ConversionBlock({ bookingId, kind, conversion: c, reported }: { booking
         {c?.lastError && <><dt>Last error</dt><dd style={{ color: "var(--bad)" }}>{c.lastError}</dd></>}
       </dl>
       {c && <p className="hint">{conversionStatusMeta[c.status]?.help}</p>}
-      {c?.status !== "Sent" && (
+      {canSend && c?.status !== "Sent" && (
         <form action={sendConversion} className="actions-row">
           <input type="hidden" name="id" value={bookingId} />
           <input type="hidden" name="kind" value={kind} />

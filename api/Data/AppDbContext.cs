@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ConversionAttempt> ConversionAttempts => Set<ConversionAttempt>();
     public DbSet<Site> Sites => Set<Site>();
     public DbSet<Conversion> Conversions => Set<Conversion>();
+    public DbSet<SiteUser> SiteUsers => Set<SiteUser>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -48,6 +49,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.ConversionStatus).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.ReconciliationStatus).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.AffiliatePaymentStatus).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => x.AffiliatePaymentStatus);
 
             e.HasMany(x => x.Events).WithOne().HasForeignKey(x => x.TrackedBookingId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Attempts).WithOne().HasForeignKey(x => x.TrackedBookingId).OnDelete(DeleteBehavior.Cascade);
@@ -64,6 +67,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.LeadPostbackUrl).HasMaxLength(2000);
             e.Property(x => x.SalePostbackUrl).HasMaxLength(2000);
             e.Property(x => x.WebhookSecret).HasMaxLength(200);
+        });
+
+        b.Entity<SiteUser>(e =>
+        {
+            e.ToTable("site_users");
+            e.HasIndex(x => x.Email).IsUnique();
+            e.HasIndex(x => x.SiteId);
+            e.HasOne<Site>().WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(x => x.Email).HasMaxLength(200);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.PasswordHash).HasMaxLength(500);
         });
 
         b.Entity<Conversion>(e =>

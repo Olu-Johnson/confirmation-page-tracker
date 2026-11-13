@@ -49,6 +49,22 @@ npm run dev
 
 Admin login: `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `web/.env.local`.
 
+## Users and roles
+
+| Who | Signs in with | Sees | Can change |
+|---|---|---|---|
+| **Super admin** | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Every site, Sites, Setup | Everything, including affiliate payment |
+| **Site user** | Email + password (Admin → Sites → *site* → Users) | Only that site's bookings (list, detail, stats, CSV) | Nothing (read-only) |
+
+The web app sends `X-Site-Scope: <site id>` with a site user's API calls. The API then forces the site filter,
+returns 404 for other sites' bookings, hides postback attempts (their URLs carry TrackCrest tokens) and answers 403 to
+every other admin endpoint, so scoping doesn't depend on the UI alone. Turning a user off or deleting them signs
+them out on their next page load.
+
+**Affiliate payment** (per booking, super admin only): `Pending` (default) → `Paid` / `Rejected`, set from the
+bookings list or the booking page. Setting Paid or Rejected stamps the affiliate payment date; going back to Pending
+clears it. It can be filtered on and is in the CSV export.
+
 API docs: Swagger UI at http://localhost:5145/swagger (OpenAPI JSON at `/openapi/v1.json`). Development only, or set
 `EnableSwagger=true`. For admin endpoints click **Authorize** and paste `Admin:ApiKey`.
 
