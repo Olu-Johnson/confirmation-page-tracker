@@ -110,7 +110,7 @@ import Script from "next/script";
                 <span className="check tone-muted">4</span>
                 <div>
                   <strong>Optional: Zylux Meet redirect on booking</strong>
-                  <p>In each event → Advanced → Redirect on booking, send people back to the site, where the tracker forwards them to the confirmation page:</p>
+                  <p>Not needed when people book through the embed on the site: the tracker sends them to the confirmation page (after payment, for paid meetings). Only if people also book on the Zylux Meet page itself, set each event → Advanced → Redirect on booking to:</p>
                   <div className="code-block">{`${origin}/?bt_booked=1`}</div>
                 </div>
               </li>
