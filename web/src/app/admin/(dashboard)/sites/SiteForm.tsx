@@ -60,12 +60,15 @@ export default function SiteForm({ site }: { site?: Site }) {
         <p className="hint">One per line. The tracker script only reports bookings from these.</p>
       </div>
 
-      {!site && (
-        <div className="field">
-          <label className="label" htmlFor="webhookSecret">Zylux webhook secret (optional)</label>
-          <input className="input mono" id="webhookSecret" name="webhookSecret" minLength={16} maxLength={200} placeholder="Leave empty to generate one" />
-        </div>
-      )}
+      <div className="field">
+        <label className="label" htmlFor="webhookSecret">Zylux webhook secret</label>
+        <input className="input mono" id="webhookSecret" name="webhookSecret" minLength={16} maxLength={200} autoComplete="off"
+          placeholder={site ? "Leave empty to keep the current secret" : "Paste the secret from the Zylux Meet webhook, or leave empty to generate one"} />
+        <p className="hint">
+          Must be the same as the <strong>Secret</strong> on the webhook in the site owner&apos;s Zylux Meet account (Settings → Developer → Webhooks), or every
+          webhook is rejected. Either paste Zylux&apos;s secret here, or leave this empty and copy this site&apos;s secret (shown on the site page) into Zylux.
+        </p>
+      </div>
 
       <div className="field">
         <label className="check-row">
