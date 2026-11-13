@@ -92,7 +92,7 @@ import Script from "next/script";
                   <p>In the site owner&apos;s Zylux Meet account → Settings → Developer → Webhooks, add:</p>
                   <div className="code-block">{`${apiUrl}/api/webhooks/zylux/${site.key}`}</div>
                   <p style={{ marginTop: 8 }}>Triggers: {TRIGGERS.map((t) => <code key={t} style={{ marginRight: 6 }}>{t}</code>)}</p>
-                  <p style={{ marginTop: 8 }}>Secret:</p>
+                  <p style={{ marginTop: 8 }}>Secret: the webhook&apos;s <strong>Secret</strong> in Zylux Meet must be exactly this, or every webhook is rejected (to use Zylux&apos;s secret instead, paste it under Settings below):</p>
                   <details>
                     <summary>Show webhook secret</summary>
                     <div className="code-block">{site.webhookSecret || "(none set)"}</div>
