@@ -107,7 +107,11 @@ Web: see `web/.env.example`.
    ```html
    <script src="https://meet.zyluxmedia.app/embed.js" data-tracking="on" async></script>
    ```
-7. Check **Admin → Setup**: every item should show a tick after the first real booking.
+7. In the site owner's Zylux Meet account, each event → Advanced → **Redirect on booking** →
+   `https://YOUR-WEB/booking-confirmed`. Zylux Meet sends the guest there once everything is done (after booking
+   for a free meeting, after payment for a paid one), from the embed or its own page. The page reads the booking's
+   real status from Zylux Meet, and offers **Pay now** if it's still unpaid.
+8. Check **Admin → Setup**: every item should show a tick after the first real booking.
 
 Webhooks set up before sites existed (`/api/webhooks/zylux`, no key) still work: the site is the one whose
 secret matches the signature.

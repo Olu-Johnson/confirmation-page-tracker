@@ -109,9 +109,10 @@ import Script from "next/script";
               <li>
                 <span className="check tone-muted">4</span>
                 <div>
-                  <strong>Optional: Zylux Meet redirect on booking</strong>
-                  <p>Not needed when people book through the embed on the site: the tracker sends them to the confirmation page (after payment, for paid meetings). Only if people also book on the Zylux Meet page itself, set each event → Advanced → Redirect on booking to:</p>
-                  <div className="code-block">{`${origin}/?bt_booked=1`}</div>
+                  <strong>Zylux Meet redirect on booking</strong>
+                  <p>In each event → Advanced → Redirect on booking, enter this site&apos;s confirmation page:</p>
+                  <div className="code-block">{`${app}/booking-confirmed`}</div>
+                  <p className="hint">Zylux Meet sends people there once everything is done: right after booking for a free meeting, after the payment goes through for a paid one. It works from the embed and from the Zylux Meet page itself, and the page checks the booking&apos;s real status with Zylux Meet. The lead/sale doesn&apos;t depend on it: that comes from the webhook.</p>
                 </div>
               </li>
             </ol>
