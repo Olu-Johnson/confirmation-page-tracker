@@ -3,15 +3,24 @@
  *
  * Add to every page of the client's site (e.g. app/layout of dept.habyyer.com):
  *   <script src="https://YOUR-APP/tracker.js" data-booking-tracker
+ *           data-site="dept-habyyer"
  *           data-api="https://YOUR-API"
  *           data-confirm-url="https://YOUR-APP/booking-confirmed" async></script>
  *
+ * data-site is the site's key in the admin (Sites), where lead / sale / both and the TrackCrest
+ * postback URLs are set. Nothing about what gets reported is decided here.
+ *
  * 1. Saves the TrackCrest click ID (and sub1–sub5) from the landing URL on the client's domain.
- * 2. Listens for Zylux's "scheduler:booked" event (inline embed AND popup modal).
+ * 2. Listens for Zylux's "scheduler:booked" event (inline embed AND popup modal). A paid booking
+ *    ("awaiting_payment") is recorded but the visitor stays to pay in the embed; they're moved on
+ *    when Zylux sends "scheduler:paid".
  *    Also handles Zylux "Redirect on booking" set to this site, e.g. https://client.com/?bt_booked=1
  *    (Zylux appends uid, startTime, title), so paid bookings in another tab are still recorded.
  * 3. Sends {uid, clickId} to the API, then redirects to the confirmation page.
  * Visitors without a click ID are still redirected but are not recorded.
+ *
+ * Zylux Meet's embed.js also passes the click ID into the booking itself, so the booking is tracked
+ * from Zylux's signed webhooks even if this browser call never happens (closed tab after paying).
  */
 (function () {
   "use strict";
@@ -23,6 +32,7 @@
 
   var cfg = {
     api: (ds.api || "").replace(/\/+$/, ""),
+    site: ds.site || "",
     confirmUrl: ds.confirmUrl || "",
     clickParams: list(ds.clickParams, "click_id,clickid,cid,tc_cid"),
     affiliateParams: list(ds.affiliateParams, "aff_id,affiliate_id,aff"),
@@ -89,24 +99,27 @@
     location.href = url.toString();
   }
 
-  function handleBooking(b) {
+  // stay: record the booking without leaving the page (the visitor still has to pay in the embed).
+  function handleBooking(b, stay) {
     if (!b || !b.uid) return;
+    var go = stay ? function () {} : redirect;
 
     var attr = read();
     var sentKey = "bt_sent_" + b.uid;
     var alreadySent = false;
     try { alreadySent = !!sessionStorage.getItem(sentKey); } catch (err) {}
 
-    if (!attr || !cfg.api || alreadySent) { redirect(b); return; }
+    if (!attr || !cfg.api || alreadySent) { go(b); return; }
     try { sessionStorage.setItem(sentKey, "1"); } catch (err) {}
 
     var finished = false;
-    var finish = function () { if (finished) return; finished = true; redirect(b); };
+    var finish = function () { if (finished) return; finished = true; go(b); };
     var body = {
       uid: b.uid, clickId: attr.clickId, affiliateId: attr.affiliateId, status: b.status,
       title: b.title, startTime: b.startTime, endTime: b.endTime,
       sub1: attr.sub1, sub2: attr.sub2, sub3: attr.sub3, sub4: attr.sub4, sub5: attr.sub5,
-      site: location.origin, landingUrl: attr.landingUrl, referrer: attr.referrer, clickedAt: attr.ts
+      site: location.origin, siteKey: cfg.site || undefined,
+      landingUrl: attr.landingUrl, referrer: attr.referrer, clickedAt: attr.ts
     };
     // text/plain avoids a CORS preflight; keepalive lets it finish while the page navigates.
     fetch(cfg.api + "/api/track/booking", {
@@ -117,7 +130,16 @@
   }
 
   // a) Embedded scheduler (inline or popup) in this tab.
-  window.addEventListener("scheduler:booked", function (e) { handleBooking((e && e.detail) || {}); });
+  window.addEventListener("scheduler:booked", function (e) {
+    var b = (e && e.detail) || {};
+    handleBooking(b, b.status === "awaiting_payment");
+  });
+  // A paid booking's payment went through in the embed: now go to the confirmation page.
+  window.addEventListener("scheduler:paid", function (e) {
+    var b = (e && e.detail) || {};
+    b.status = "accepted";
+    handleBooking(b, false);
+  });
 
   // b) Zylux "Redirect on booking" pointing back at this site (e.g. https://client.com/?bt_booked=1).
   //    Covers payment in the same tab or a new tab, and the hosted Zylux page: whichever tab lands

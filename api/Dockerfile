@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- build ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Runs on the CI runner's native arch: the publish output is architecture-neutral
+# (framework-dependent, no apphost), so only the runtime stage needs the target arch.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY BookingTracker.Api.csproj ./

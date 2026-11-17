@@ -27,7 +27,7 @@ public class ConversionQueue
     }
 }
 
-/// <summary>Calls the TrackCrest postback URL and records every attempt.</summary>
+/// <summary>Calls the site's TrackCrest postback URL for each lead/sale and records every attempt.</summary>
 public class ConversionSender(
     AppDbContext db, IHttpClientFactory http, IOptions<TrackCrestOptions> tc, IOptions<TrackingOptions> tracking, ILogger<ConversionSender> log)
 {
@@ -37,81 +37,98 @@ public class ConversionSender(
     public async Task ProcessDueAsync(CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
-        var due = await db.Bookings
-            .Where(b => b.ConversionStatus == ConversionStatus.Queued && (b.NextConversionAttemptAt == null || b.NextConversionAttemptAt <= now))
-            .OrderBy(b => b.NextConversionAttemptAt)
+        var due = await db.Conversions
+            .Where(c => c.Status == ConversionStatus.Queued && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
+            .OrderBy(c => c.NextAttemptAt)
             .Take(25)
             .ToListAsync(ct);
 
-        foreach (var booking in due)
+        foreach (var conversion in due)
         {
-            await SendAsync(booking, manual: false, ct);
+            // Loads the booking with all its conversions (this one is already tracked, so it's the same instance).
+            var booking = await db.Bookings.Include(b => b.Conversions).FirstAsync(b => b.Id == conversion.TrackedBookingId, ct);
+            await SendAsync(booking, conversion, manual: false, ct);
             await db.SaveChangesAsync(ct);
         }
     }
 
-    public async Task SendAsync(TrackedBooking b, bool manual, CancellationToken ct)
+    /// <summary>Sends one conversion. Returns an error message when nothing could be sent (no site or no URL).</summary>
+    public async Task<string?> SendAsync(TrackedBooking b, Conversion c, bool manual, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
         b.UpdatedAt = now;
-
-        if (!manual && b.Status is BookingStatus.Cancelled or BookingStatus.Rejected)
-        {
-            b.ConversionStatus = ConversionStatus.NotEligible;
-            b.NextConversionAttemptAt = null;
-            return;
-        }
-
-        var template = tc.Value.PostbackUrl;
-        if (string.IsNullOrWhiteSpace(template))
-        {
-            // Not a TrackCrest failure: keep it queued so it goes out once the URL is configured.
-            b.LastConversionError = "TrackCrest:PostbackUrl is not configured on the API.";
-            b.NextConversionAttemptAt = now.AddMinutes(5);
-            return;
-        }
-
-        var url = BuildUrl(template, b);
-        var attempt = new ConversionAttempt { Id = Guid.NewGuid(), TrackedBookingId = b.Id, AttemptedAt = now, Url = url, Manual = manual };
+        c.UpdatedAt = now;
         try
         {
-            var client = http.CreateClient("trackcrest");
-            using var resp = await client.GetAsync(url, ct);
-            attempt.HttpStatus = (int)resp.StatusCode;
-            attempt.Success = resp.IsSuccessStatusCode;
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            attempt.Response = body.Length > 500 ? body[..500] : body;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
-        {
-            attempt.Error = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
-        }
+            if (!manual && b.Status is BookingStatus.Cancelled or BookingStatus.Rejected)
+            {
+                c.Status = ConversionStatus.NotEligible;
+                c.NextAttemptAt = null;
+                return null;
+            }
 
-        db.ConversionAttempts.Add(attempt);
-        b.ConversionAttemptCount++;
+            var site = b.SiteId is { } siteId ? await db.Sites.FindAsync([siteId], ct) : null;
+            var template = site?.PostbackUrlFor(c.Kind);
+            if (string.IsNullOrWhiteSpace(template))
+            {
+                // Not a TrackCrest failure: keep it queued so it goes out once the URL is set.
+                c.LastError = site is null
+                    ? "This booking isn't linked to a site."
+                    : $"The {c.Kind.ToString().ToLowerInvariant()} postback URL isn't set for site \"{site.Key}\" (Admin → Sites).";
+                if (c.Status == ConversionStatus.Queued) c.NextAttemptAt = now.AddMinutes(5);
+                return c.LastError;
+            }
 
-        if (attempt.Success)
-        {
-            b.ConversionStatus = ConversionStatus.Sent;
-            b.ConversionSentAt = now;
-            b.NextConversionAttemptAt = null;
-            b.LastConversionError = null;
-            log.LogInformation("Conversion sent for {Uid}", b.BookingUid);
-            return;
-        }
+            var url = BuildUrl(template, b, c.Kind);
+            var attempt = new ConversionAttempt
+            {
+                Id = Guid.NewGuid(), TrackedBookingId = b.Id, ConversionId = c.Id, Kind = c.Kind, AttemptedAt = now, Url = url, Manual = manual,
+            };
+            try
+            {
+                var client = http.CreateClient("trackcrest");
+                using var resp = await client.GetAsync(url, ct);
+                attempt.HttpStatus = (int)resp.StatusCode;
+                attempt.Success = resp.IsSuccessStatusCode;
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                attempt.Response = body.Length > 500 ? body[..500] : body;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                attempt.Error = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+            }
 
-        b.LastConversionError = attempt.Error ?? $"TrackCrest responded {attempt.HttpStatus}";
-        if (b.ConversionAttemptCount >= tc.Value.MaxAttempts)
-        {
-            b.ConversionStatus = ConversionStatus.Failed;
-            b.NextConversionAttemptAt = null;
+            db.ConversionAttempts.Add(attempt);
+            c.AttemptCount++;
+
+            if (attempt.Success)
+            {
+                c.Status = ConversionStatus.Sent;
+                c.SentAt = now;
+                c.NextAttemptAt = null;
+                c.LastError = null;
+                log.LogInformation("{Kind} conversion sent for {Uid}", c.Kind, b.BookingUid);
+                return null;
+            }
+
+            c.LastError = attempt.Error ?? $"TrackCrest responded {attempt.HttpStatus}";
+            if (c.AttemptCount >= tc.Value.MaxAttempts)
+            {
+                c.Status = ConversionStatus.Failed;
+                c.NextAttemptAt = null;
+            }
+            else
+            {
+                c.Status = ConversionStatus.Queued;
+                c.NextAttemptAt = now + Backoff[Math.Min(c.AttemptCount - 1, Backoff.Length - 1)];
+            }
+            log.LogWarning("{Kind} conversion attempt {N} failed for {Uid}: {Error}", c.Kind, c.AttemptCount, b.BookingUid, c.LastError);
+            return c.LastError;
         }
-        else
+        finally
         {
-            b.ConversionStatus = ConversionStatus.Queued;
-            b.NextConversionAttemptAt = now + Backoff[Math.Min(b.ConversionAttemptCount - 1, Backoff.Length - 1)];
+            BookingEventService.Summarize(b);
         }
-        log.LogWarning("Conversion attempt {N} failed for {Uid}: {Error}", b.ConversionAttemptCount, b.BookingUid, b.LastConversionError);
     }
 
     /// <summary>Removes webhooks for bookings that never came through a tracking link.</summary>
@@ -121,13 +138,21 @@ public class ConversionSender(
         return db.WebhookEvents.Where(e => e.TrackedBookingId == null && e.ReceivedAt < cutoff).ExecuteDeleteAsync(ct);
     }
 
-    public static string BuildUrl(string template, TrackedBooking b)
+    /// <summary>
+    /// Fills the postback URL's placeholders (URL-encoded): {click_id} {txid}/{booking_uid} (the Zylux booking uid)
+    /// {conversion_id} (uid-lead / uid-sale, unique per postback) {event} (lead / sale) {amount} {currency}
+    /// {status} (booking status) {affiliate_id} {sub1}..{sub5}.
+    /// </summary>
+    public static string BuildUrl(string template, TrackedBooking b, ConversionKind kind)
     {
         string E(string? v) => Uri.EscapeDataString(v ?? "");
+        var ev = kind.ToString().ToLowerInvariant();
         return template
             .Replace("{click_id}", E(b.ClickId))
             .Replace("{txid}", E(b.BookingUid))
             .Replace("{booking_uid}", E(b.BookingUid))
+            .Replace("{conversion_id}", E($"{b.BookingUid}-{ev}"))
+            .Replace("{event}", E(ev))
             .Replace("{amount}", E(b.Amount?.ToString("0.##", CultureInfo.InvariantCulture)))
             .Replace("{currency}", E(b.Currency))
             .Replace("{status}", E(b.Status.ToString().ToLowerInvariant()))

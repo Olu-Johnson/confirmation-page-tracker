@@ -1,5 +1,5 @@
-import { bookingStatusMeta, conversionStatusMeta, reconciliationMeta } from "@/lib/format";
-import type { BookingStatus, ConversionStatus, ReconciliationStatus } from "@/lib/types";
+import { affiliatePaymentMeta, bookingStatusMeta, conversionStatusMeta, reconciliationMeta } from "@/lib/format";
+import type { AffiliatePaymentStatus, BookingStatus, ConversionStatus, ReconciliationStatus } from "@/lib/types";
 
 export function Badge({ tone, children, title }: { tone: string; children: React.ReactNode; title?: string }) {
   return <span className={`badge tone-${tone}`} title={title}>{children}</span>;
@@ -17,6 +17,11 @@ export function ConversionBadge({ status }: { status: ConversionStatus }) {
 
 export function ReconciliationBadge({ status }: { status: ReconciliationStatus }) {
   const m = reconciliationMeta[status] ?? { label: status, tone: "muted" };
+  return <Badge tone={m.tone}>{m.label}</Badge>;
+}
+
+export function AffiliatePaymentBadge({ status }: { status: AffiliatePaymentStatus }) {
+  const m = affiliatePaymentMeta[status] ?? { label: status, tone: "muted" };
   return <Badge tone={m.tone}>{m.label}</Badge>;
 }
 

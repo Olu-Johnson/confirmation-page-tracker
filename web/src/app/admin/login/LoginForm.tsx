@@ -10,7 +10,7 @@ export default function LoginForm({ next }: { next: string }) {
       {state?.error && <div className="alert tone-bad" role="alert">{state.error}</div>}
       <input type="hidden" name="next" value={next} />
       <div className="field">
-        <label className="label" htmlFor="username">Username</label>
+        <label className="label" htmlFor="username">Username or email</label>
         <input className="input" id="username" name="username" autoComplete="username" required autoFocus />
       </div>
       <div className="field">
